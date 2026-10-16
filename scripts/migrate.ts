@@ -2,11 +2,12 @@
 // admin from ADMIN_EMAIL / ADMIN_PASSWORD when no users exist (as NSE-Signal does).
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
-import { db, closeDb, schema } from "../src/lib/db";
+import { db, closeDb, schema, useMigrationUrl, explainDbError } from "../src/lib/db";
 import { FEATURES } from "../src/lib/features";
 import { hashPassword } from "../src/lib/auth/password";
 
 async function main() {
+  useMigrationUrl();
   await migrate(db, { migrationsFolder: "./drizzle" });
   console.log("migrations applied");
 
@@ -33,4 +34,9 @@ async function main() {
   }
 }
 
-main().then(closeDb).catch(async (e) => { console.error(e); await closeDb(); process.exit(1); });
+main().then(closeDb).catch(async (e) => {
+  console.error(`\n${"migrate"} failed: ${explainDbError(e)}\n`);
+  console.error(e);
+  await closeDb();
+  process.exit(1);
+});

@@ -61,8 +61,15 @@ Restore a backup: `pg_restore -d "$DATABASE_URL" --clean --if-exists backups/<fi
 
 ## Deploy the Vercel demo
 
-1. Create a Postgres (Neon or Supabase, Mumbai region) and a Vercel project from this repo.
-2. Environment variables: `DEPLOY_TARGET=vercel`, `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET`, `SAMPLE_PASSWORD`, and `SHOW_SAMPLE_PASSWORD=1` if the login page should show it.
+1. Create a Postgres (Supabase or Neon, Mumbai region) and a Vercel project from this repo.
+2. Environment variables:
+   - `DEPLOY_TARGET=vercel`, `JWT_SECRET`, `CRON_SECRET`, `SAMPLE_PASSWORD`, and `SHOW_SAMPLE_PASSWORD=1` if the login page should show it.
+   - **Supabase:** don't use the direct `db.<ref>.supabase.co` string. It is IPv6-only and Vercel can't reach it (`ENETUNREACH 2406:…`). In Supabase → **Connect**, copy:
+     - **Transaction pooler** (port 6543) → `DATABASE_URL` (used by the app at runtime)
+     - **Session pooler** (port 5432) → `MIGRATION_DATABASE_URL` (used by migrations and the sample seed during the build)
+
+     Both look like `postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:<port>/postgres`; note the user is `postgres.<project-ref>`.
+   - **Neon:** the pooled string for `DATABASE_URL`, the direct one for `MIGRATION_DATABASE_URL`.
 3. Deploy. `npm run vercel-build` migrates, loads the sample household and builds. Vercel Cron rolls the sample prices forward daily.
 
 Sign in as `admin@sample.local` (admin) or `meera@sample.local` (member). All funds, stocks and prices are fictional ("Demo …").

@@ -11,6 +11,9 @@ export const config = {
   target,
   isVercel: target === "vercel",
   databaseUrl: process.env.DATABASE_URL ?? "",
+  // Build-time scripts (migrate, seed) may use a different URL, e.g. Supabase's
+  // session pooler, while the app uses the transaction pooler.
+  migrationDatabaseUrl: process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL || "",
   jwtSecret: process.env.JWT_SECRET ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
   basePath: process.env.NEXT_PUBLIC_BASE_PATH ?? "",

@@ -1,7 +1,7 @@
 // Loads the fictional sample household. Used by the Vercel demo; safe to re-run.
 //   SAMPLE_PASSWORD sets the demo logins' password.
 import { eq } from "drizzle-orm";
-import { db, closeDb, schema } from "../src/lib/db";
+import { db, closeDb, schema, useMigrationUrl, explainDbError } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth/password";
 import { seedSampleHousehold } from "../src/lib/sample";
 import { FEATURES } from "../src/lib/features";
@@ -14,6 +14,7 @@ async function user(email: string, name: string, role: "admin" | "member", pw: s
 }
 
 async function main() {
+  useMigrationUrl();
   const pw = process.env.SAMPLE_PASSWORD ?? "sample-portfolio-2026";
   const admin = await user("admin@sample.local", "Arun (sample admin)", "admin", pw);
   const member = await user("meera@sample.local", "Meera (sample member)", "member", pw);
@@ -24,4 +25,9 @@ async function main() {
   console.log("sample household:", r);
 }
 
-main().then(closeDb).catch(async (e) => { console.error(e); await closeDb(); process.exit(1); });
+main().then(closeDb).catch(async (e) => {
+  console.error(`\n${"seed"} failed: ${explainDbError(e)}\n`);
+  console.error(e);
+  await closeDb();
+  process.exit(1);
+});
