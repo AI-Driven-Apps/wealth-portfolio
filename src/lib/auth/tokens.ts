@@ -1,4 +1,4 @@
-// Edge-safe token helpers (used by middleware): no Node APIs, no DB.
+// Edge-safe token helpers (used by proxy.ts): no Node APIs, no DB.
 //
 // One signed session cookie, 7 days, sliding. Every request also checks the
 // session row in Postgres (getCtx), so signing out everywhere, a password
