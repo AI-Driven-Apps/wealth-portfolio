@@ -27,7 +27,8 @@ export const normHeader = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, "
 
 /** Parse common Indian date formats to yyyy-mm-dd. */
 export function parseLooseDate(v: unknown): string | null {
-  if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  // Date objects from spreadsheet libraries are local-midnight: read local parts, not UTC.
+  if (v instanceof Date && !isNaN(v.getTime())) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
   if (typeof v === "number" && v > 20000 && v < 80000) {
     // Excel serial date
     return new Date(Date.UTC(1899, 11, 30) + v * 86_400_000).toISOString().slice(0, 10);

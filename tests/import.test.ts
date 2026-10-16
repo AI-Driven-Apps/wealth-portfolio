@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import * as XLSX from "xlsx";
+import * as XLSX from "@e965/xlsx";
 import { mapCas } from "@/lib/import/cas";
 import { parseTradebook } from "@/lib/import/tradebook";
 import { mapContractNote } from "@/lib/import/contractNote";

@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHmac, randomBytes } from "node:crypto";
-import * as XLSX from "xlsx";
+import * as XLSX from "@e965/xlsx";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { config } from "@/lib/config";

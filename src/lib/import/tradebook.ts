@@ -1,7 +1,7 @@
 // Broker tradebooks (XLS / XLSX / CSV). Columns are matched by header aliases, so
 // Zerodha, Dhan, Groww, Upstox, ICICI and most other exports work without a
 // per-broker template. Header row may sit below a few title rows.
-import * as XLSX from "xlsx";
+import * as XLSX from "@e965/xlsx";
 import { normHeader, parseLooseDate, parseNumber } from "./tabular";
 import { dedup, type ImportPreview, type ImportRow } from "./types";
 
@@ -35,7 +35,11 @@ function findHeader(rows: unknown[][]): { idx: number; map: Record<string, numbe
 }
 
 export function parseTradebook(buf: ArrayBuffer | Uint8Array, filename: string, broker: string, accountRef: string): ImportPreview {
-  const wb = XLSX.read(buf, { type: "array", cellDates: true, raw: false });
+  // No JS Date objects: SheetJS builds them at local midnight, which shifts the
+  // trade date by a day depending on the server's timezone. CSV cells stay text
+  // (raw) and Excel dates stay serial numbers; parseLooseDate handles both without TZ.
+  const isCsv = /\.csv$/i.test(filename);
+  const wb = XLSX.read(buf, { type: "array", cellDates: false, raw: isCsv });
   const rows: ImportRow[] = [];
   const skipped: ImportPreview["skipped"] = [];
   const warnings: string[] = [];
