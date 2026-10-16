@@ -1,0 +1,6 @@
+# Add inside your existing site block in the Pi's Caddyfile, e.g.
+#   home.tinyserverlab.in { ... }
+# The app is built with basePath /wealth, so do NOT strip the prefix.
+handle /wealth* {
+	reverse_proxy wealth-portfolio:3000
+}

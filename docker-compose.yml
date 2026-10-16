@@ -1,0 +1,76 @@
+# Wealth Portfolio on the Raspberry Pi 5.
+# Reuses the Pi's existing shared-postgres and Caddy containers over their
+# Docker network; nothing here touches NSE-Signal's containers or data.
+#
+#   cp .env.example .env   # fill it in
+#   docker compose up -d --build
+#
+# Memory budget (sits beside Finance Tracker, Home Inventory, NSE-Signal):
+#   app 384 MB · worker 256 MB · cas-parser 160 MB · backup 64 MB
+
+x-common: &common
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    TZ: Asia/Kolkata
+    DEPLOY_TARGET: pi
+  networks: [shared, internal]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  app:
+    <<: *common
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-/wealth}
+    image: wealth-portfolio:latest
+    container_name: wealth-portfolio
+    depends_on: [cas-parser]
+    mem_limit: 384m
+    # No host port: Caddy reaches it on the shared network as wealth-portfolio:3000.
+    # Uncomment for LAN-only testing:
+    # ports: ["3010:3000"]
+
+  worker:
+    <<: *common
+    image: wealth-portfolio:latest
+    container_name: wealth-portfolio-worker
+    command: ["node", "dist/worker/index.mjs"]
+    depends_on: [app]           # app runs migrations on start
+    mem_limit: 256m
+    healthcheck: { disable: true }
+
+  cas-parser:
+    restart: unless-stopped
+    build: ./parser
+    container_name: wealth-portfolio-parser
+    environment:
+      PARSER_SECRET: ${PARSER_SECRET:-}
+    networks: [internal]        # not on the shared network, never exposed
+    mem_limit: 160m
+    read_only: true
+    tmpfs: [/tmp]
+
+  backup:
+    image: postgres:16-alpine
+    container_name: wealth-portfolio-backup
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Kolkata
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./deploy/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "-c", "echo '30 2 * * * /bin/sh /backup.sh' > /etc/crontabs/root && /bin/sh /backup.sh && exec crond -f -l 8"]
+    networks: [shared]
+    mem_limit: 64m
+
+networks:
+  shared:
+    external: true
+    name: ${SHARED_NETWORK:-homelab}   # the network shared-postgres and Caddy are on
+  internal: {}

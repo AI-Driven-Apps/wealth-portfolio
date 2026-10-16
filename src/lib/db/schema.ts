@@ -1,0 +1,200 @@
+import {
+  pgTable, pgEnum, uuid, text, boolean, timestamp, date, numeric, integer,
+  jsonb, primaryKey, uniqueIndex, index, serial,
+} from "drizzle-orm/pg-core";
+
+// Money and units are NUMERIC, never float. Drizzle returns them as strings;
+// convert at the edge with Number() only for display/maths on small sets.
+const units = (name: string) => numeric(name, { precision: 20, scale: 6 });
+const rupees = (name: string) => numeric(name, { precision: 18, scale: 2 });
+
+export const roleEnum = pgEnum("role", ["admin", "member"]);
+export const accessLevelEnum = pgEnum("access_level", ["view", "manage"]);
+export const instrumentTypeEnum = pgEnum("instrument_type", ["stock", "mf", "etf", "index"]);
+export const capClassEnum = pgEnum("cap_class", ["large", "mid", "small"]);
+export const underlyingEnum = pgEnum("underlying_class", [
+  "equity", "debt", "liquid", "hybrid", "gold", "silver", "international", "other",
+]);
+export const accountKindEnum = pgEnum("account_kind", ["folio", "demat"]);
+export const txnTypeEnum = pgEnum("txn_type", [
+  "buy", "sell", "sip", "switch_in", "switch_out",
+  "dividend_payout", "dividend_reinvest", "bonus", "split",
+]);
+export const txnSourceEnum = pgEnum("txn_source", [
+  "manual", "cas", "demat_cas", "tradebook", "contract_note", "sample",
+]);
+
+// ---------- users, sessions, profiles ----------
+
+export const appUser = pgTable("app_user", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: roleEnum("role").notNull().default("member"),
+  isActive: boolean("is_active").notNull().default(true),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+});
+
+export const session = pgTable("session", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => appUser.id, { onDelete: "cascade" }),
+  refreshHash: text("refresh_hash").notNull(), // random per-session nonce (hashed); kept for future use
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+export const profile = pgTable("profile", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  panHash: text("pan_hash"),
+  panLast4: text("pan_last4"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const profileAccess = pgTable("profile_access", {
+  userId: uuid("user_id").notNull().references(() => appUser.id, { onDelete: "cascade" }),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  level: accessLevelEnum("level").notNull().default("manage"),
+}, (t) => [primaryKey({ columns: [t.userId, t.profileId] })]);
+
+// ---------- feature flags ----------
+
+export const featureFlag = pgTable("feature_flag", {
+  key: text("key").primaryKey(),
+  label: text("label").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+});
+
+export const userFeature = pgTable("user_feature", {
+  userId: uuid("user_id").notNull().references(() => appUser.id, { onDelete: "cascade" }),
+  key: text("key").notNull().references(() => featureFlag.key, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+}, (t) => [primaryKey({ columns: [t.userId, t.key] })]);
+
+// ---------- market data ----------
+
+export const instrument = pgTable("instrument", {
+  id: serial("id").primaryKey(),
+  type: instrumentTypeEnum("type").notNull(),
+  name: text("name").notNull(),
+  isin: text("isin"),
+  nseSymbol: text("nse_symbol"),
+  bseCode: text("bse_code"),
+  amfiCode: text("amfi_code"),
+  yahooSymbol: text("yahoo_symbol"),
+  dhanSecurityId: text("dhan_security_id"),
+  amc: text("amc"),
+  schemeCategory: text("scheme_category"),
+  plan: text("plan"), // direct | regular
+  sector: text("sector"),
+  capClass: capClassEnum("cap_class"),
+  isFof: boolean("is_fof").notNull().default(false),
+  underlyingClass: underlyingEnum("underlying_class"),
+  trackedIndex: text("tracked_index"),
+  benchmarkYahoo: text("benchmark_yahoo"),
+  active: boolean("active").notNull().default(true),
+  lastPrice: units("last_price"),
+  lastPriceDate: date("last_price_date"),
+  lastNav: units("last_nav"),           // ETFs: AMFI NAV, compared with market price
+  lastNavDate: date("last_nav_date"),
+  historySyncedAt: timestamp("history_synced_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("instrument_amfi_uq").on(t.amfiCode),
+  uniqueIndex("instrument_nse_uq").on(t.type, t.nseSymbol),
+  index("instrument_isin_idx").on(t.isin),
+]);
+
+export const priceHistory = pgTable("price_history", {
+  instrumentId: integer("instrument_id").notNull().references(() => instrument.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  close: units("close").notNull(),      // traded price / NAV — used for valuation
+  adjClose: units("adj_close"),          // split/dividend adjusted — used for returns
+}, (t) => [primaryKey({ columns: [t.instrumentId, t.date] })]);
+
+// ---------- holdings ledger ----------
+
+export const account = pgTable("account", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  kind: accountKindEnum("kind").notNull(),
+  provider: text("provider").notNull(), // CAMS, KFINTECH, Dhan, Zerodha, CDSL...
+  ref: text("ref").notNull(),           // folio number or demat id
+  label: text("label"),
+}, (t) => [uniqueIndex("account_uq").on(t.profileId, t.kind, t.ref)]);
+
+export const importBatch = pgTable("import_batch", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => appUser.id, { onDelete: "set null" }),
+  kind: txnSourceEnum("kind").notNull(),
+  filename: text("filename"),
+  stats: jsonb("stats").$type<Record<string, number>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const txn = pgTable("txn", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id").references(() => account.id, { onDelete: "set null" }),
+  instrumentId: integer("instrument_id").notNull().references(() => instrument.id),
+  date: date("date").notNull(),
+  type: txnTypeEnum("type").notNull(),
+  units: units("units").notNull(),         // split: ratio (e.g. 5 for 1→5)
+  price: units("price").notNull(),
+  amount: rupees("amount").notNull(),      // always positive; direction from type
+  fees: rupees("fees").notNull().default("0"),
+  source: txnSourceEnum("source").notNull(),
+  dedupKey: text("dedup_key").notNull(),
+  importBatchId: uuid("import_batch_id").references(() => importBatch.id, { onDelete: "cascade" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("txn_dedup_uq").on(t.profileId, t.dedupKey),
+  index("txn_profile_instr_idx").on(t.profileId, t.instrumentId, t.date),
+]);
+
+export const sipPlan = pgTable("sip_plan", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id").references(() => account.id, { onDelete: "set null" }),
+  instrumentId: integer("instrument_id").notNull().references(() => instrument.id),
+  amount: rupees("amount").notNull(),
+  dayOfMonth: integer("day_of_month").notNull(),
+  stepUpPct: numeric("step_up_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  active: boolean("active").notNull().default(true),
+});
+
+// ---------- ops ----------
+
+export const appSetting = pgTable("app_setting", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const jobRun = pgTable("job_run", {
+  id: serial("id").primaryKey(),
+  job: text("job").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").notNull().default("running"), // running | ok | error
+  detail: jsonb("detail"),
+});
+
+export const auditLog = pgTable("audit_log", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").references(() => appUser.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  detail: jsonb("detail"),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Instrument = typeof instrument.$inferSelect;
+export type Txn = typeof txn.$inferSelect;
+export type AppUser = typeof appUser.$inferSelect;

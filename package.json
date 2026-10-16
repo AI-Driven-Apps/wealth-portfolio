@@ -1,0 +1,48 @@
+{
+  "name": "wealth-portfolio",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "tsx worker/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed-sample": "tsx scripts/seed-sample.ts",
+    "job": "tsx scripts/run-job.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "vercel-build": "tsx scripts/migrate.ts && tsx scripts/seed-sample.ts && next build"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.44.5",
+    "jose": "^6.1.0",
+    "next": "^15.5.4",
+    "node-cron": "^4.2.1",
+    "papaparse": "^5.5.3",
+    "postgres": "^3.4.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "recharts": "^3.2.1",
+    "server-only": "^0.0.1",
+    "tsx": "^4.20.5",
+    "xlsx": "^0.18.5",
+    "yahoo-finance2": "^2.13.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.18.6",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "drizzle-kit": "^0.31.4",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
