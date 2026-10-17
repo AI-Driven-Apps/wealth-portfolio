@@ -16,10 +16,12 @@ export interface ImportRow {
   account: { kind: "folio" | "demat"; provider: string; ref: string };
   dedupKey: string;
   note?: string;
+  /** Set in the preview when the person matches an unrecognised row to an existing instrument. */
+  instrumentId?: number;
 }
 
 export interface ImportPreview {
-  source: "cas" | "demat_cas" | "tradebook" | "contract_note";
+  source: "cas" | "demat_cas" | "tradebook" | "contract_note" | "spreadsheet";
   filename: string;
   rows: ImportRow[];
   skipped: { reason: string; detail: string }[];

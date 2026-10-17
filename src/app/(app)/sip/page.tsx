@@ -1,7 +1,8 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { requireCtx } from "@/lib/auth/session";
-import { getSips } from "@/lib/portfolio/sips";
+import { getSips, sipCandidates } from "@/lib/portfolio/sips";
+import { SipSuggestions } from "@/components/sip-suggestions";
 import { getHoldings } from "@/lib/portfolio/holdings";
 import { config } from "@/lib/config";
 import { todayIST } from "@/lib/calc/dates";
@@ -21,6 +22,7 @@ export default async function SipPage() {
   const monthly = active.reduce((s, x) => s + x.currentAmount, 0);
   const missed12 = sips.flatMap((s) => s.statuses.slice(-12)).filter((x) => x.status === "missed").length;
   const canAdd = ctx.canManage && ctx.scope !== "household" && !!ctx.scope;
+  const candidates = canAdd ? await sipCandidates(ctx.scope) : [];
 
   return (
     <>
@@ -69,6 +71,7 @@ export default async function SipPage() {
           })}
         </div>
       )}
+      {candidates.length > 0 && <Card title={`Found in your transactions (${candidates.length})`} className="mt-4"><SipSuggestions candidates={candidates} /></Card>}
       <Card title="Add a SIP" className="mt-4">
         {canAdd ? <AddSipForm basePath={config.basePath} today={todayIST()} /> : <Notice kind="info">Switch to a single profile to add a SIP.</Notice>}
       </Card>

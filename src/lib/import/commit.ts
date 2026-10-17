@@ -27,6 +27,9 @@ async function lookup(rows: ImportRow[]) {
 
 export interface PreviewRow extends ImportRow { instrumentName: string | null; isNew: boolean }
 
+/** What identifies "the same holding" across rows of one file (for matching it once in the preview). */
+export const identityOf = (r: Pick<ImportRow, "amfiCode" | "isin" | "symbol" | "name">) => r.amfiCode ?? r.isin ?? r.symbol ?? r.name.toLowerCase();
+
 /** Annotate rows with the instrument they map to; for demat statements keep only the gap vs the ledger. */
 export async function enrichPreview(p: ImportPreview, profileId: string): Promise<ImportPreview & { rows: PreviewRow[] }> {
   const find = await lookup(p.rows);
@@ -34,6 +37,7 @@ export async function enrichPreview(p: ImportPreview, profileId: string): Promis
     const ins = find(r);
     return { ...r, instrumentName: ins?.name ?? null, isNew: !ins };
   });
+  const missingSymbol = new Set(p.rows.map((r) => find(r)).filter((i): i is Ins => !!i && i.type !== "mf" && !i.nseSymbol && !i.yahooSymbol).map((i) => i.name));
   const warnings = [...p.warnings];
 
   if (p.source === "demat_cas") {
@@ -54,16 +58,29 @@ export async function enrichPreview(p: ImportPreview, profileId: string): Promis
     if (!kept.length && rows.length) warnings.push("Your ledger already matches this statement — nothing to add.");
     rows = kept;
   }
+  if (missingSymbol.size) warnings.push(`${missingSymbol.size} stock${missingSymbol.size > 1 ? "s are" : " is"} known only by ISIN (no NSE symbol), so ${missingSymbol.size > 1 ? "they" : "it"} won't get prices until the weekly "NSE equity list" job runs or you set the symbol in Admin → Data sources: ${[...missingSymbol].slice(0, 4).join(", ")}.`);
   return { ...p, rows, warnings };
 }
 
 async function ensureInstrument(r: ImportRow, find: (r: ImportRow) => Ins | undefined): Promise<Ins> {
+  if (r.instrumentId) {
+    // Matched by hand in the preview.
+    const [picked] = await db.select().from(schema.instrument).where(eq(schema.instrument.id, r.instrumentId));
+    if (!picked || picked.type === "index") throw new Error(`The instrument picked for "${r.name}" no longer exists.`);
+    return picked;
+  }
   const hit = find(r);
   if (hit) {
-    // A tradebook tells us an ETF's NSE symbol, which AMFI doesn't publish.
-    if (hit.type === "etf" && !hit.nseSymbol && r.symbol) {
-      await db.update(schema.instrument).set({ nseSymbol: r.symbol }).where(eq(schema.instrument.id, hit.id));
-      hit.nseSymbol = r.symbol;
+    // A tradebook tells us an ETF's NSE symbol, which AMFI doesn't publish; a stock
+    // known only by ISIN (from a demat statement or a fund disclosure) gets one the same way.
+    if ((hit.type === "etf" || hit.type === "stock") && !hit.nseSymbol && r.symbol) {
+      // Skip if another row already owns the symbol (a duplicate the NSE-list job merges).
+      const [taken] = await db.select({ id: schema.instrument.id }).from(schema.instrument)
+        .where(and(eq(schema.instrument.type, hit.type), eq(schema.instrument.nseSymbol, r.symbol)));
+      if (!taken) {
+        await db.update(schema.instrument).set({ nseSymbol: r.symbol }).where(eq(schema.instrument.id, hit.id));
+        hit.nseSymbol = r.symbol;
+      }
     }
     return hit;
   }
@@ -97,10 +114,10 @@ export async function commitImport(p: ImportPreview, profileId: string, userId: 
         .returning({ id: schema.account.id });
       accountIds.set(aKey, a.id);
     }
-    const iKey = r.amfiCode ?? r.isin ?? r.symbol ?? r.name;
+    const iKey = r.instrumentId ? `id:${r.instrumentId}` : identityOf(r);
     let ins = insCache.get(iKey);
     if (!ins) {
-      const before = find(r);
+      const before = r.instrumentId ? true : find(r);
       ins = await ensureInstrument(r, find);
       if (!before) newInstruments++;
       insCache.set(iKey, ins);
@@ -114,7 +131,9 @@ export async function commitImport(p: ImportPreview, profileId: string, userId: 
   }
   const stats = { rows: p.rows.length, inserted, duplicates, newInstruments };
   await db.update(schema.importBatch).set({ stats }).where(eq(schema.importBatch.id, batch.id));
-  return { batchId: batch.id, ...stats };
+  // Stocks/ETFs without an NSE symbol get no prices: say so rather than show stale values.
+  const noSymbol = [...insCache.values()].filter((i) => i.type !== "mf" && !i.nseSymbol && !i.yahooSymbol).map((i) => i.name);
+  return { batchId: batch.id, ...stats, noSymbol: [...new Set(noSymbol)] };
 }
 
 /** Undo: an import batch's transactions are removed with it (FK cascade). */

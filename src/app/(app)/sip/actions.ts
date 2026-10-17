@@ -6,6 +6,7 @@ import { db, schema } from "@/lib/db";
 import { requireCtx, writableProfile } from "@/lib/auth/session";
 import { todayIST } from "@/lib/calc/dates";
 import { audit } from "@/lib/audit";
+import { sipCandidates } from "@/lib/portfolio/sips";
 
 const SipInput = z.object({
   instrumentId: z.coerce.number().int().positive(),
@@ -40,4 +41,26 @@ export async function stopSip(fd: FormData) {
     .where(and(eq(schema.sipPlan.id, id), inArray(schema.sipPlan.profileId, ctx.profileIds)));
   await audit(ctx.user.id, resume ? "sip.resume" : "sip.stop", { id });
   revalidatePath("/sip");
+}
+
+/** Creates the SIP plans ticked in the "found in your transactions" list. */
+export async function createDetectedSips(_: unknown, fd: FormData) {
+  try {
+    const ctx = await requireCtx("sip");
+    const profileId = writableProfile(ctx);
+    const picked = new Set(fd.getAll("pick").map(String));
+    if (!picked.size) return { error: "Tick at least one SIP." };
+    const found = (await sipCandidates(profileId)).filter((c) => picked.has(`${c.instrumentId}|${c.accountId ?? ""}`));
+    for (const c of found) {
+      await db.insert(schema.sipPlan).values({
+        profileId, accountId: c.accountId, instrumentId: c.instrumentId, amount: c.plan.amount.toFixed(2), dayOfMonth: c.plan.dayOfMonth,
+        stepUpPct: c.plan.stepUpPct.toFixed(2), startDate: c.plan.startDate, endDate: c.plan.endDate, active: c.plan.active,
+      });
+    }
+    await audit(ctx.user.id, "sip.detected", { profileId, created: found.length });
+    revalidatePath("/", "layout");
+    return { ok: `Added ${found.length} SIP${found.length === 1 ? "" : "s"}.` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }

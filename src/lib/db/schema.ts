@@ -22,6 +22,7 @@ export const txnTypeEnum = pgEnum("txn_type", [
 ]);
 export const txnSourceEnum = pgEnum("txn_source", [
   "manual", "cas", "demat_cas", "tradebook", "contract_note", "sample",
+  "spreadsheet", "fixed_assets", "loans", // spreadsheet imports; the last two only label import batches
 ]);
 
 // ---------- users, sessions, profiles ----------
@@ -209,6 +210,7 @@ export const fixedAsset = pgTable("fixed_asset", {
   assetClass: text("asset_class"),                      // overrides the kind's default class, e.g. NPS equity
   closedOn: date("closed_on"),
   notes: text("notes"),
+  importBatchId: uuid("import_batch_id").references(() => importBatch.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -228,6 +230,7 @@ export const loan = pgTable("loan", {
   firstEmiDate: date("first_emi_date").notNull(),
   closedOn: date("closed_on"),
   notes: text("notes"),
+  importBatchId: uuid("import_batch_id").references(() => importBatch.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -239,6 +242,7 @@ export const loanEvent = pgTable("loan_event", {
   amount: rupees("amount"),                              // prepayment
   ratePct: numeric("rate_pct", { precision: 6, scale: 3 }), // rate change
   reduce: text("reduce").notNull().default("tenure"),   // tenure | emi
+  importBatchId: uuid("import_batch_id").references(() => importBatch.id, { onDelete: "cascade" }),
 }, (t) => [index("loan_event_loan_idx").on(t.loanId, t.date)]);
 
 // ---------- allocation targets and alerts (phase 6) ----------

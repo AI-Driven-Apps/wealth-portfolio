@@ -2,7 +2,7 @@
 // (node-cron); Vercel Cron calls them through /api/cron/[job]; admins can run
 // them from Admin → Jobs. Every job is incremental and idempotent (re-running
 // is safe), the rule NSE-Signal's ingest follows too.
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { config } from "@/lib/config";
 import { addDays, todayIST } from "@/lib/calc/dates";
@@ -222,19 +222,48 @@ export const nseEquityList: JobFn = async () => {
     headers: { "user-agent": "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 Chrome/128 Safari/537.36", accept: "text/csv,*/*" },
   });
   const lines = csv.split(/\r?\n/).slice(1).filter(Boolean);
-  let n = 0;
+  let n = 0, symbolsSet = 0;
   for (let i = 0; i < lines.length; i += 500) {
     const rows = lines.slice(i, i + 500).map((l) => l.split(",")).filter((c) => c.length >= 7 && /^IN/.test(c[6]?.trim()))
       .map((c) => ({ type: "stock" as const, nseSymbol: c[0].trim(), name: c[1].trim(), isin: c[6].trim(), underlyingClass: "equity" as const }));
     if (!rows.length) continue;
+    // Stocks known only by ISIN (demat statements, fund disclosures, the cap list) get
+    // their symbol here; if a row with that symbol already exists, the two are merged.
+    const orphans = await db.select({ id: schema.instrument.id, isin: schema.instrument.isin }).from(schema.instrument)
+      .where(and(eq(schema.instrument.type, "stock"), isNull(schema.instrument.nseSymbol), inArray(schema.instrument.isin, rows.map((r) => r.isin))));
+    for (const o of orphans) {
+      const r = rows.find((x) => x.isin === o.isin)!;
+      const [owner] = await db.select({ id: schema.instrument.id }).from(schema.instrument)
+        .where(and(eq(schema.instrument.type, "stock"), eq(schema.instrument.nseSymbol, r.nseSymbol)));
+      if (owner) await mergeInstrument(o.id, owner.id);
+      else await db.update(schema.instrument).set({ nseSymbol: r.nseSymbol, name: r.name }).where(eq(schema.instrument.id, o.id));
+      symbolsSet++;
+    }
     await db.insert(schema.instrument).values(rows).onConflictDoUpdate({
       target: [schema.instrument.type, schema.instrument.nseSymbol],
       set: { name: sql`excluded.name`, isin: sql`excluded.isin` },
     });
     n += rows.length;
   }
-  return { stocks: n };
+  return { stocks: n, symbolsSet };
 };
+
+/** Moves everything that points at instrument `from` onto `to`, then deletes `from`. */
+export async function mergeInstrument(from: number, to: number) {
+  await db.transaction(async (tx) => {
+    await tx.update(schema.txn).set({ instrumentId: to }).where(eq(schema.txn.instrumentId, from));
+    await tx.update(schema.sipPlan).set({ instrumentId: to }).where(eq(schema.sipPlan.instrumentId, from));
+    await tx.update(schema.fundHolding).set({ holdingInstrumentId: to }).where(eq(schema.fundHolding.holdingInstrumentId, from));
+    await tx.update(schema.fundHolding).set({ fundId: to }).where(eq(schema.fundHolding.fundId, from));
+    // keep the richer record's classification
+    const [a] = await tx.select().from(schema.instrument).where(eq(schema.instrument.id, from));
+    await tx.update(schema.instrument).set({
+      sector: sql`coalesce(${schema.instrument.sector}, ${a?.sector ?? null})`,
+      capClass: sql`coalesce(${schema.instrument.capClass}, ${a?.capClass ?? null})`,
+    }).where(eq(schema.instrument.id, to));
+    await tx.delete(schema.instrument).where(eq(schema.instrument.id, from)); // price_history cascades
+  });
+}
 
 export const sampleExtend: JobFn = async () => ({ rows: await extendSampleData() });
 

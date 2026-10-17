@@ -26,6 +26,11 @@ This release covers **phases 1–6** of the design plan: foundation, mutual fund
 - **ETFs**: grouped by what they hold (gold/debt ETFs don't count as equity), price vs latest NAV, 1-year tracking difference vs the index.
 - **Holding page**: price/NAV chart with your buys/sells and average cost, 1/3/5Y returns, 52-week range, FIFO open lots, realised gains with short/long term.
 - **Imports (preview → confirm, file never stored)**: CAMS/KFintech detailed CAS, NSDL/CDSL demat CAS (adds only the gap vs your ledger), broker tradebook XLS/XLSX/CSV (header-alias matching, F&O skipped), contract-note PDF (charges spread across trades). Re-importing is safe; tradebook and contract note for the same trade dedupe on trade id. Each import can be undone.
+  - **Any spreadsheet**: transactions from another platform's export (Groww, Kuvera, Coin…) or your own records. Columns are matched by header and can be re-mapped in the preview; a downloadable template shows the format. Needs a date, a name/symbol/ISIN/AMFI code and two of units, price, amount.
+  - **Deposits & savings** and **Loans** from CSV/XLSX templates (FD/RD/bonds/PPF/EPF/NPS/gold/cash/property; loans with prepayment and rate-change rows). Names already in the profile are left unchanged, new events for an existing loan are added, and Undo removes exactly what the import added.
+  - **Preview**: untick rows you don't want; match an unrecognised fund or stock to one you already have, so its history lands in one place.
+  - **SIP detection**: after an import (and on the SIPs page), monthly purchase runs without a plan are offered as SIPs (amount, day, yearly step-up, running or stopped), checked against the same matcher the SIP page uses.
+  - **Stocks known only by ISIN** (demat CAS, fund disclosures) take their NSE symbol from the first tradebook that names them, and the weekly NSE equity list job fills in the rest, merging any duplicate it finds.
 - **Manual entry** for anything the imports miss.
 - **Jobs**: AMFI scheme master + daily NAV, mfapi.in NAV history (gap-only after first sync), Yahoo EOD prices, Dhan live quotes, Dhan security-id mapping, NSE equity list. All idempotent; runnable from Admin → Jobs.
 - **Nightly `pg_dump`** with 14-day retention.
@@ -101,8 +106,9 @@ export DATABASE_URL=postgres://postgres@localhost:5432/wealth_portfolio JWT_SECR
 npm run db:migrate          # + ADMIN_EMAIL / ADMIN_PASSWORD for a first admin
 npm run db:seed-sample      # optional fictional household
 npm run dev
-npm test                    # 68 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
-                            # disclosures + look-through + overlap, FD/RD/PPF accrual, loan amortisation, what-if, drift, webhooks
+npm test                    # 80 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
+                            # disclosures + look-through + overlap, FD/RD/PPF accrual, loan amortisation, what-if, drift, webhooks,
+                            # spreadsheet/deposit/loan imports, SIP detection
 npm run job -- scheme-master
 ```
 PDF parser: `cd parser && pip install -r requirements.txt && uvicorn app:app --port 8001`, then `PARSER_URL=http://127.0.0.1:8001`.
@@ -116,7 +122,7 @@ src/lib/calc/         xirr, fifo, returns, sip, dates, fixed, loan, whatif, drif
 src/lib/lookthrough/  disclosure parsers, look-through engine + overlap, disclosure import
 src/lib/notify/       Discord sender (encrypted webhooks) and the alerts job
 src/lib/providers/    amfi + mfapi, yahoo, dhan
-src/lib/import/       cas, tradebook, contractNote, commit, parserClient
+src/lib/import/       cas, tradebook, contractNote, spreadsheet, records (deposits/loans), columns, commit, commitRecords, parserClient
 src/lib/jobs/         every scheduled job, one registry
 src/lib/portfolio/    holdings, sips (ledger -> positions), consolidated (net worth + trend), lookthrough, whatif, allocation
 src/lib/db/schema.ts  Drizzle schema; migrations in drizzle/
