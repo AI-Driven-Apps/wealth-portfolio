@@ -170,6 +170,116 @@ export const sipPlan = pgTable("sip_plan", {
   active: boolean("active").notNull().default(true),
 });
 
+// ---------- look-through (phase 4) ----------
+
+export const holdingKindEnum = pgEnum("holding_kind", ["equity", "foreign_equity", "debt", "fund", "cash", "other"]);
+
+/** One line of a fund's monthly portfolio disclosure. Replaced as a whole per (fund, month). */
+export const fundHolding = pgTable("fund_holding", {
+  id: serial("id").primaryKey(),
+  fundId: integer("fund_id").notNull().references(() => instrument.id, { onDelete: "cascade" }),
+  asOfMonth: date("as_of_month").notNull(), // first day of the disclosure month
+  holdingInstrumentId: integer("holding_instrument_id").references(() => instrument.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  isin: text("isin"),
+  kind: holdingKindEnum("kind").notNull(),
+  sector: text("sector"),                   // as the AMC reports it; fallback when the stock has none
+  weightPct: numeric("weight_pct", { precision: 9, scale: 4 }).notNull(),
+}, (t) => [index("fund_holding_fund_idx").on(t.fundId, t.asOfMonth)]);
+
+// ---------- fixed income, alternatives, loans (phase 5) ----------
+
+export const fixedKindEnum = pgEnum("fixed_kind", ["fd", "rd", "bond", "ppf", "epf", "nps", "sgb", "gold", "reit", "cash", "other"]);
+export const compoundingEnum = pgEnum("compounding", ["monthly", "quarterly", "half_yearly", "yearly", "simple"]);
+
+export const fixedAsset = pgTable("fixed_asset", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  kind: fixedKindEnum("kind").notNull(),
+  name: text("name").notNull(),
+  institution: text("institution"),
+  principal: rupees("principal").notNull(),            // RD: the monthly instalment
+  ratePct: numeric("rate_pct", { precision: 6, scale: 3 }).notNull().default("0"),
+  compounding: compoundingEnum("compounding").notNull().default("quarterly"),
+  payout: boolean("payout").notNull().default(false),  // interest paid out (payout FD, bonds, SGB coupon)
+  startDate: date("start_date").notNull(),
+  maturityDate: date("maturity_date"),
+  balance: rupees("balance"),                           // known balance (EPF/PPF/NPS/gold/cash), grown at rate from balance_as_of
+  balanceAsOf: date("balance_as_of"),
+  assetClass: text("asset_class"),                      // overrides the kind's default class, e.g. NPS equity
+  closedOn: date("closed_on"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const loanKindEnum = pgEnum("loan_kind", ["home", "car", "personal", "education", "gold", "other"]);
+export const loanEventKindEnum = pgEnum("loan_event_kind", ["prepayment", "rate_change"]);
+
+export const loan = pgTable("loan", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  kind: loanKindEnum("kind").notNull(),
+  name: text("name").notNull(),
+  lender: text("lender"),
+  principal: rupees("principal").notNull(),
+  ratePct: numeric("rate_pct", { precision: 6, scale: 3 }).notNull(),
+  tenureMonths: integer("tenure_months").notNull(),
+  emi: rupees("emi"),                                   // null = computed from principal, rate, tenure
+  firstEmiDate: date("first_emi_date").notNull(),
+  closedOn: date("closed_on"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const loanEvent = pgTable("loan_event", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  loanId: uuid("loan_id").notNull().references(() => loan.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  kind: loanEventKindEnum("kind").notNull(),
+  amount: rupees("amount"),                              // prepayment
+  ratePct: numeric("rate_pct", { precision: 6, scale: 3 }), // rate change
+  reduce: text("reduce").notNull().default("tenure"),   // tenure | emi
+}, (t) => [index("loan_event_loan_idx").on(t.loanId, t.date)]);
+
+// ---------- allocation targets and alerts (phase 6) ----------
+
+export const targetAllocation = pgTable("target_allocation", {
+  profileId: uuid("profile_id").notNull().references(() => profile.id, { onDelete: "cascade" }),
+  assetClass: text("asset_class").notNull(),
+  targetPct: numeric("target_pct", { precision: 5, scale: 2 }).notNull(),
+  bandPct: numeric("band_pct", { precision: 5, scale: 2 }), // null = the admin's default band
+}, (t) => [primaryKey({ columns: [t.profileId, t.assetClass] })]);
+
+export const channelScopeEnum = pgEnum("channel_scope", ["global", "user"]);
+
+export const notificationChannel = pgTable("notification_channel", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scope: channelScopeEnum("scope").notNull(),
+  ownerUserId: uuid("owner_user_id").references(() => appUser.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  webhookEnc: text("webhook_enc").notNull(),            // AES-256-GCM; never sent to the browser
+  webhookHint: text("webhook_hint").notNull(),          // last 4 of the token, for display
+  enabled: boolean("enabled").notNull().default(true),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const alertSubscription = pgTable("alert_subscription", {
+  channelId: uuid("channel_id").notNull().references(() => notificationChannel.id, { onDelete: "cascade" }),
+  alertType: text("alert_type").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+}, (t) => [primaryKey({ columns: [t.channelId, t.alertType] })]);
+
+/** One row per alert delivered, so re-running the alerts job never repeats a message. */
+export const alertSent = pgTable("alert_sent", {
+  id: serial("id").primaryKey(),
+  channelId: uuid("channel_id").notNull().references(() => notificationChannel.id, { onDelete: "cascade" }),
+  alertType: text("alert_type").notNull(),
+  key: text("key").notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("alert_sent_uq").on(t.channelId, t.alertType, t.key)]);
+
 // ---------- ops ----------
 
 export const appSetting = pgTable("app_setting", {
@@ -198,3 +308,6 @@ export const auditLog = pgTable("audit_log", {
 export type Instrument = typeof instrument.$inferSelect;
 export type Txn = typeof txn.$inferSelect;
 export type AppUser = typeof appUser.$inferSelect;
+export type FixedAsset = typeof fixedAsset.$inferSelect;
+export type Loan = typeof loan.$inferSelect;
+export type LoanEventRow = typeof loanEvent.$inferSelect;

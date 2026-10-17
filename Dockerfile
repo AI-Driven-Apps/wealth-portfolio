@@ -16,7 +16,7 @@ COPY . .
 RUN npx next build \
  && npx esbuild worker/index.ts scripts/migrate.ts scripts/seed-sample.ts scripts/run-job.ts \
       --bundle --platform=node --target=node22 --format=esm --outdir=dist --out-extension:.js=.mjs \
-      --external:@node-rs/argon2 --alias:@=./src \
+      --external:@node-rs/argon2 --alias:@=./src --conditions=react-server \
       --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
 
 FROM node:22-alpine AS run

@@ -31,6 +31,7 @@ const SCHEDULE: [string, string][] = [
   ["*/5 9-15 * * 1-5", "live-quotes"],   // Dhan LTP during market hours
   ["30 8 * * 1-5", "dhan-scrip-master"], // Dhan republishes each morning
   ["0 7 * * 0", "nse-equity-list"],      // weekly is plenty
+  ["0 8 * * *", "alerts"],               // after last night's NAVs; SIP reminders land in the morning
 ];
 
 async function main() {

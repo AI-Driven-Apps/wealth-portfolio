@@ -30,7 +30,7 @@ export function assetClassOf(i: Pick<Instrument, "type" | "underlyingClass">): s
 }
 
 /** Ledger rows for the given profiles, grouped by instrument. */
-async function loadLedger(profileIds: string[], types: AssetType[], instrumentId?: number) {
+export async function loadLedger(profileIds: string[], types: AssetType[], instrumentId?: number) {
   if (!profileIds.length) return new Map<number, LedgerTxn[]>();
   const rows = await db.select({
     instrumentId: schema.txn.instrumentId, date: schema.txn.date, type: schema.txn.type,

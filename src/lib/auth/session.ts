@@ -7,6 +7,7 @@ import { db, schema } from "@/lib/db";
 import { SESSION_COOKIE, PROFILE_COOKIE, SESSION_TTL_SEC, cookieOptions, signSession, verifySession } from "./tokens";
 import { verifyPassword } from "./password";
 import { audit } from "@/lib/audit";
+import { accessFor } from "./access";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -87,18 +88,7 @@ export async function getCtx(): Promise<Ctx | null> {
   const u = row.u;
 
   const isAdmin = u.role === "admin";
-  const flags = await db.select().from(schema.featureFlag);
-  const grants = isAdmin ? [] : await db.select().from(schema.userFeature).where(eq(schema.userFeature.userId, u.id));
-  const granted = new Set(grants.filter((g) => g.enabled).map((g) => g.key));
-  // A module is visible only when it is on globally AND granted to the user (admins: global only).
-  const features = new Set(flags.filter((f) => f.enabled && (isAdmin || granted.has(f.key))).map((f) => f.key));
-
-  const profiles = isAdmin
-    ? (await db.select().from(schema.profile).orderBy(schema.profile.name)).map((p) => ({ id: p.id, name: p.name, level: "manage" as const }))
-    : (await db.select({ id: schema.profile.id, name: schema.profile.name, level: schema.profileAccess.level })
-        .from(schema.profileAccess)
-        .innerJoin(schema.profile, eq(schema.profile.id, schema.profileAccess.profileId))
-        .where(eq(schema.profileAccess.userId, u.id))).slice(0, 1); // members: own profile only
+  const { features, profiles } = await accessFor(u);
 
   const wanted = jar.get(PROFILE_COOKIE)?.value;
   let scope: string;

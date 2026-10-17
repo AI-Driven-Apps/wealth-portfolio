@@ -30,3 +30,25 @@ export function addYears(iso: string, years: number): string {
 export function yearsBetween(a: string, b: string): number {
   return (toDayNum(b) - toDayNum(a)) / 365;
 }
+
+/** Same day-of-month `months` later, clamped to month end (Jan 31 + 1 → Feb 28/29). */
+export function addMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12), nm = total % 12;
+  const last = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate();
+  return `${ny}-${String(nm + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+/** Last day of each month from `from`'s month to `to`'s month; the final point is `to` itself. */
+export function monthEnds(from: string, to: string): string[] {
+  const out: string[] = [];
+  let [y, m] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  while (y < ty || (y === ty && m < tm)) {
+    out.push(fromDayNum(toDayNum(`${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`) - 1));
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  out.push(to);
+  return out;
+}

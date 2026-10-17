@@ -39,3 +39,18 @@ export function fmtDate(iso: string | null | undefined): string {
 }
 
 export const tone = (v: number | null | undefined) => (v == null || v === 0 ? "text-ink-2" : v > 0 ? "text-gain" : "text-loss");
+
+/** "Demo Midcap Fund - Direct Plan - Growth" → "Demo Midcap Fund", for tight tables. */
+export const shortFund = (name: string) => name.replace(/\s*[-–(].*?(direct|regular|growth|idcw|dividend|plan|option).*$/i, "").trim() || name;
+
+/** "2026-09-01" → "Sep 2026". */
+export function fmtMonth(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+const CLASS_LABEL: Record<string, string> = {
+  equity: "Equity", debt: "Debt", hybrid: "Hybrid", gold: "Gold", silver: "Silver", international: "International",
+  real_estate: "Real estate", cash: "Cash", other: "Other", "not itemised": "Not itemised",
+};
+export const classLabel = (c: string) => CLASS_LABEL[c] ?? c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, " ");

@@ -10,6 +10,7 @@ import { detectTrackedIndex, fetchMfapiHistory, fetchNavAll, fetchText } from "@
 import { fetchDaily, fetchSector, toYahoo } from "@/lib/providers/yahoo";
 import { getLtp, parseScripMaster, SCRIP_MASTER_URL } from "@/lib/providers/dhan";
 import { extendSampleData } from "@/lib/sample";
+import { runAlerts } from "@/lib/notify/alerts";
 
 export type JobResult = Record<string, unknown>;
 type JobFn = () => Promise<JobResult>;
@@ -237,6 +238,26 @@ export const nseEquityList: JobFn = async () => {
 
 export const sampleExtend: JobFn = async () => ({ rows: await extendSampleData() });
 
+/**
+ * Fills price history for one instrument back to `from`, on demand (a what-if
+ * alternative nobody holds has none). Pi only; the Vercel demo makes no outside calls.
+ */
+export async function ensureHistory(id: number, from: string): Promise<number> {
+  if (config.isVercel) return 0;
+  const [ins] = await db.select().from(schema.instrument).where(eq(schema.instrument.id, id));
+  if (!ins) return 0;
+  const [first] = await db.select({ d: schema.priceHistory.date }).from(schema.priceHistory)
+    .where(eq(schema.priceHistory.instrumentId, id)).orderBy(schema.priceHistory.date).limit(1);
+  if (first && first.d <= addDays(from, 7)) return 0;
+  if (ins.type === "mf" && ins.amfiCode) {
+    const hist = await fetchMfapiHistory(ins.amfiCode);
+    await db.update(schema.instrument).set({ historySyncedAt: new Date() }).where(eq(schema.instrument.id, id));
+    return upsertPrices(id, hist);
+  }
+  const sym = ins.yahooSymbol ?? (ins.nseSymbol ? toYahoo(ins.nseSymbol) : null);
+  return sym ? upsertPrices(id, await fetchDaily(sym, addDays(from, -7))) : 0;
+}
+
 // ---------------------------------------------------------------- registry
 
 export const JOBS: Record<string, { fn: JobFn; label: string; vercel: boolean }> = {
@@ -246,6 +267,7 @@ export const JOBS: Record<string, { fn: JobFn; label: string; vercel: boolean }>
   "live-quotes": { fn: liveQuotes, label: "Live quotes (Dhan, market hours)", vercel: false },
   "dhan-scrip-master": { fn: dhanScripMaster, label: "Dhan security id mapping", vercel: false },
   "nse-equity-list": { fn: nseEquityList, label: "NSE equity list (names + ISINs)", vercel: false },
+  alerts: { fn: runAlerts, label: "Discord alerts (summary, SIPs, maturities, moves, drift)", vercel: false },
   "sample-extend": { fn: sampleExtend, label: "Roll sample data forward to today", vercel: true },
 };
 

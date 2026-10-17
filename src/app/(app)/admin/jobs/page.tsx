@@ -10,7 +10,7 @@ export const metadata = { title: "Jobs" };
 
 const SCHEDULE: Record<string, string> = config.isVercel
   ? { "sample-extend": "daily, Vercel Cron" }
-  : { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST" };
+  : { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST", alerts: "daily 08:00 IST" };
 
 const when = (d: Date | null) => d ? d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 

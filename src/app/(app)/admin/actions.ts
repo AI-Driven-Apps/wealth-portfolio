@@ -11,6 +11,9 @@ import { hashPassword } from "@/lib/auth/password";
 import { setDhanToken } from "@/lib/providers/dhan";
 import { runJob, JOBS } from "@/lib/jobs";
 import { normHeader } from "@/lib/import/tabular";
+import { detectAsOfMonth, parseDisclosure, pickSheet } from "@/lib/lookthrough/disclosure";
+import { commitDisclosure } from "@/lib/lookthrough/commit";
+import { setSetting } from "@/lib/settings";
 import { audit } from "@/lib/audit";
 
 const tempPassword = () => randomBytes(9).toString("base64url");
@@ -160,6 +163,19 @@ export async function uploadCapList(_: unknown, fd: FormData): Promise<R> {
     name: cName >= 0 ? String(r[cName] ?? "").trim() : "",
     cat: String(r[cCat] ?? "").toLowerCase(),
   })).filter((r) => /^IN[A-Z0-9]{10}$/.test(r.isin));
+  // Companies we don't know yet (held only through funds) are added, so look-through can classify them.
+  let added = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const known = new Set((await db.select({ isin: schema.instrument.isin }).from(schema.instrument)
+      .where(inArray(schema.instrument.isin, chunk.map((r) => r.isin)))).map((r) => r.isin));
+    const fresh = chunk.filter((r) => !known.has(r.isin) && r.name);
+    if (fresh.length) {
+      const res = await db.insert(schema.instrument).values(fresh.map((r) => ({ type: "stock" as const, name: r.name, isin: r.isin, nseSymbol: r.sym || null, underlyingClass: "equity" as const })))
+        .onConflictDoNothing().returning({ id: schema.instrument.id });
+      added += res.length;
+    }
+  }
   let updated = 0;
   for (const cls of ["large", "mid", "small"] as const) {
     const set = rows.filter((r) => r.cat.startsWith(cls));
@@ -178,9 +194,11 @@ export async function uploadCapList(_: unknown, fd: FormData): Promise<R> {
       }
     }
   }
-  await audit(ctx.user.id, "reference.caplist", { rows: rows.length, updated });
+  await db.insert(schema.appSetting).values({ key: "amfi_cap_list", value: { rows: rows.length, file: file.name, at: new Date().toISOString() } })
+    .onConflictDoUpdate({ target: schema.appSetting.key, set: { value: { rows: rows.length, file: file.name, at: new Date().toISOString() }, updatedAt: new Date() } });
+  await audit(ctx.user.id, "reference.caplist", { rows: rows.length, updated, added });
   revalidatePath("/", "layout");
-  return { ok: `Read ${rows.length} companies; updated ${updated} of your stocks.` };
+  return { ok: `Read ${rows.length} companies; classified ${updated} stocks (${added} newly added for look-through).` };
 }
 
 /** CSV with symbol (or isin) and sector columns. Overrides Yahoo's sector. */
@@ -219,6 +237,67 @@ export async function updateInstrument(fd: FormData) {
   }).where(eq(schema.instrument.id, id));
   await audit(ctx.user.id, "instrument.update", { id });
   revalidatePath("/", "layout");
+}
+
+// ---------------- fund disclosures (look-through) ----------------
+
+/** A fund's monthly portfolio disclosure: AMC xlsx (multi-sheet is fine) or a plain CSV. */
+export async function uploadDisclosure(_: unknown, fd: FormData): Promise<R> {
+  const ctx = await requireAdmin();
+  const fundId = Number(fd.get("fundId"));
+  const file = fd.get("file");
+  if (!Number.isInteger(fundId) || fundId <= 0) return { error: "Pick the fund this disclosure belongs to." };
+  if (!(file instanceof File) || !file.size) return { error: "Choose the disclosure file." };
+  if (file.size > 15 * 1024 * 1024) return { error: "That file is over 15 MB." };
+  const [fund] = await db.select().from(schema.instrument).where(eq(schema.instrument.id, fundId));
+  if (!fund || (fund.type !== "mf" && fund.type !== "etf")) return { error: "Pick a mutual fund or ETF." };
+
+  let wb: XLSX.WorkBook;
+  try { wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true }); }
+  catch { return { error: "Couldn't read that file. Upload the AMC's xlsx/xls or a CSV." }; }
+  const sheets = wb.SheetNames.map((name) => ({ name, grid: XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: null, raw: false }) }));
+  const wanted = String(fd.get("sheet") ?? "").trim();
+  const sheet = wanted ? sheets.find((s) => s.name.toLowerCase() === wanted.toLowerCase()) : pickSheet(sheets, fund.name);
+  if (!sheet) return { error: wanted ? `No sheet named "${wanted}". Sheets: ${wb.SheetNames.slice(0, 12).join(", ")}` : "Couldn't tell which sheet is this fund's. Enter the sheet name." };
+
+  const parsed = parseDisclosure(sheet.grid);
+  if (!parsed) return { error: `Sheet "${sheet.name}" has no recognisable name and "% to NAV" (or weight) columns.` };
+  const monthIn = String(fd.get("month") ?? "");
+  const asOf = /^\d{4}-\d{2}$/.test(monthIn) ? `${monthIn}-01` : detectAsOfMonth(sheet.grid);
+  if (!asOf) return { error: "Enter the disclosure month (it wasn't found in the sheet's title)." };
+
+  const st = await commitDisclosure(fundId, asOf, parsed.rows);
+  await audit(ctx.user.id, "disclosure.upload", { fundId, asOf, sheet: sheet.name, parser: parsed.parser, ...st, fundsUnmatched: st.fundsUnmatched.length });
+  revalidatePath("/", "layout");
+  const month = new Date(asOf + "T00:00:00Z").toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+  return { ok: [
+    `${month}, sheet "${sheet.name}": ${st.lines} lines, ${parsed.totalPct.toFixed(1)}% of NAV.`,
+    `${st.stocksMatched} stocks matched${st.stocksAdded ? ` (${st.stocksAdded} new)` : ""}${st.fundsMatched ? `, ${st.fundsMatched} underlying funds` : ""}.`,
+    st.fundsUnmatched.length ? `Not matched to a scheme: ${st.fundsUnmatched.slice(0, 3).join(", ")}.` : "",
+    ...parsed.warnings,
+  ].filter(Boolean).join(" ") };
+}
+
+export async function deleteDisclosure(fd: FormData) {
+  const ctx = await requireAdmin();
+  const fundId = Number(fd.get("fundId")), month = String(fd.get("month"));
+  await db.delete(schema.fundHolding).where(and(eq(schema.fundHolding.fundId, fundId), eq(schema.fundHolding.asOfMonth, month)));
+  await audit(ctx.user.id, "disclosure.delete", { fundId, month });
+  revalidatePath("/", "layout");
+}
+
+// ---------------- alert / drift settings ----------------
+
+export async function saveAlertSettings(_: unknown, fd: FormData): Promise<R> {
+  const ctx = await requireAdmin();
+  const band = Number(fd.get("band")), move = Number(fd.get("move"));
+  if (!(band >= 1 && band <= 30)) return { error: "Default band must be between 1 and 30 points." };
+  if (!(move >= 1 && move <= 50)) return { error: "Large-move threshold must be between 1 and 50%." };
+  await setSetting("drift_default_band", band);
+  await setSetting("alert_move_pct", move);
+  await audit(ctx.user.id, "settings.alerts", { band, move });
+  revalidatePath("/", "layout");
+  return { ok: "Saved." };
 }
 
 // ---------------- jobs ----------------

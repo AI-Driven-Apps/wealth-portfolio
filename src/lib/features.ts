@@ -7,12 +7,12 @@ export const FEATURES = [
   { key: "equity", label: "Equity", phase: 3, built: true },
   { key: "etf", label: "ETFs", phase: 3, built: true },
   { key: "imports", label: "Statement imports", phase: 2, built: true },
-  { key: "lookthrough", label: "Look-through allocation", phase: 4, built: false },
-  { key: "other", label: "Fixed income & alternatives", phase: 5, built: false },
-  { key: "loans", label: "Loans & EMIs", phase: 5, built: false },
-  { key: "what_if", label: "What-if comparison", phase: 6, built: false },
-  { key: "drift", label: "Target allocation & drift alerts", phase: 6, built: false },
-  { key: "discord_user", label: "Personal Discord alerts", phase: 6, built: false },
+  { key: "lookthrough", label: "Look-through allocation", phase: 4, built: true },
+  { key: "other", label: "Fixed income & alternatives", phase: 5, built: true },
+  { key: "loans", label: "Loans & EMIs", phase: 5, built: true },
+  { key: "what_if", label: "What-if comparison", phase: 6, built: true },
+  { key: "drift", label: "Target allocation & drift alerts", phase: 6, built: true },
+  { key: "discord_user", label: "Personal Discord alerts", phase: 6, built: true },
   { key: "ai_agents", label: "AI agents (Pi only)", phase: 7, built: false },
 ] as const;
 

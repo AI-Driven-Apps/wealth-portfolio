@@ -15,14 +15,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(f.has("fof") ? [{ href: "/fof", label: "Fund of funds", group: "Holdings" }] : []),
     ...(f.has("equity") ? [{ href: "/equity", label: "Stocks", group: "Holdings" }] : []),
     ...(f.has("etf") ? [{ href: "/etf", label: "ETFs", group: "Holdings" }] : []),
+    ...(f.has("other") ? [{ href: "/fixed", label: "Fixed income & alts", group: "Holdings" }] : []),
+    ...(f.has("loans") ? [{ href: "/loans", label: "Loans & EMIs", group: "Holdings" }] : []),
+    ...(f.has("lookthrough") ? [{ href: "/lookthrough", label: "Look-through", group: "Analysis" }] : []),
+    ...(f.has("drift") ? [{ href: "/allocation", label: "Target allocation", group: "Analysis" }] : []),
+    ...(f.has("what_if") ? [{ href: "/what-if", label: "What-if", group: "Analysis" }] : []),
     { href: "/transactions", label: "Transactions", group: "Data" },
     ...(f.has("imports") && config.importsEnabled ? [{ href: "/import", label: "Import", group: "Data" }] : []),
     ...(ctx.user.role === "admin" ? [
       { href: "/admin", label: "Users & profiles", group: "Admin" },
       { href: "/admin/features", label: "Features", group: "Admin" },
       { href: "/admin/data", label: "Data sources", group: "Admin" },
+      { href: "/admin/disclosures", label: "Disclosures", group: "Admin" },
       { href: "/admin/jobs", label: "Jobs", group: "Admin" },
     ] : []),
+    ...(ctx.user.role === "admin" || f.has("discord_user") ? [{ href: "/alerts", label: "Discord alerts", group: "You" }] : []),
     { href: "/account", label: "Account", group: "You" },
   ];
 

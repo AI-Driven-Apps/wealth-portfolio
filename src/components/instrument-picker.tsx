@@ -1,26 +1,28 @@
 "use client";
 import { useEffect, useState } from "react";
 
-interface Hit { id: number; name: string; type: string; nseSymbol: string | null; plan: string | null }
+export interface Hit { id: number; name: string; type: string; nseSymbol: string | null; plan: string | null }
 
 /** Search-as-you-type picker that submits the instrument id in a hidden field. */
-export function InstrumentPicker({ basePath, name = "instrumentId", onlyType, label = "Fund" }: { basePath: string; name?: string; onlyType?: string; label?: string }) {
+export function InstrumentPicker({ basePath, name = "instrumentId", onlyType, label = "Fund", withIndex, initial, placeholder = "Search by name or AMFI code" }: {
+  basePath: string; name?: string; onlyType?: string; label?: string; withIndex?: boolean; initial?: Hit | null; placeholder?: string;
+}) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
-  const [picked, setPicked] = useState<Hit | null>(null);
+  const [picked, setPicked] = useState<Hit | null>(initial ?? null);
   useEffect(() => {
     if (picked || q.trim().length < 2) { setHits([]); return; }
     const c = new AbortController();
     const t = setTimeout(() => {
-      fetch(`${basePath}/api/instruments?q=${encodeURIComponent(q)}`, { signal: c.signal }).then((r) => r.json())
+      fetch(`${basePath}/api/instruments?q=${encodeURIComponent(q)}${withIndex ? "&index=1" : ""}`, { signal: c.signal }).then((r) => r.json())
         .then((h: Hit[]) => setHits(onlyType ? h.filter((x) => x.type === onlyType) : h)).catch(() => {});
     }, 200);
     return () => { clearTimeout(t); c.abort(); };
-  }, [q, picked, basePath, onlyType]);
+  }, [q, picked, basePath, onlyType, withIndex]);
   return (
     <div className="relative flex flex-col gap-1">
       <label htmlFor={`${name}-q`}>{label}</label>
-      <input id={`${name}-q`} autoComplete="off" placeholder="Search by name or AMFI code" value={picked ? picked.name : q} onChange={(e) => { setPicked(null); setQ(e.target.value); }} />
+      <input id={`${name}-q`} autoComplete="off" placeholder={placeholder} value={picked ? picked.name : q} onChange={(e) => { setPicked(null); setQ(e.target.value); }} />
       <input type="hidden" name={name} value={picked?.id ?? ""} required />
       {hits.length > 0 && (
         <ul className="absolute top-full z-10 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-line bg-panel shadow-lg">

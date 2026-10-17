@@ -4,7 +4,7 @@
 // demo looks the same on every deploy and can be rolled forward daily.
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { addDays, fromDayNum, toDayNum, todayIST } from "@/lib/calc/dates";
+import { addDays, addMonths, fromDayNum, toDayNum, todayIST } from "@/lib/calc/dates";
 import { expectedInstalments } from "@/lib/calc/sip";
 
 export const SAMPLE_START = "2019-01-01";
@@ -230,5 +230,88 @@ export async function seedSampleHousehold(adminUserId: string, memberUserId: str
   });
   await db.insert(schema.txn).values(rows).onConflictDoNothing();
   const sips = await writeSipInstalments(paths, ids, today);
-  return { profiles: [arun, meera], trades: rows.length, sips };
+  const disclosureLines = await seedDisclosures(ids, today);
+  await seedFixedAndLoans(arun, meera);
+  return { profiles: [arun, meera], trades: rows.length, sips, disclosureLines };
+}
+
+// ---------------------------------------------------------------- phases 4–6 sample data
+
+/** Fictional companies that appear only inside the demo funds' disclosures. */
+const EXTRA_STOCKS = [
+  { key: "steel", name: "Demo Steel Ltd", isin: "INDEMO000005", sector: "Basic Materials", cap: "large" },
+  { key: "cement", name: "Demo Cement Ltd", isin: "INDEMO000006", sector: "Basic Materials", cap: "large" },
+  { key: "telecom", name: "Demo Telecom Ltd", isin: "INDEMO000007", sector: "Communication Services", cap: "large" },
+  { key: "power", name: "Demo Power Ltd", isin: "INDEMO000008", sector: "Utilities", cap: "mid" },
+  { key: "finance", name: "Demo Finance Ltd", isin: "INDEMO000009", sector: "Financial Services", cap: "mid" },
+  { key: "infra", name: "Demo Infra Ltd", isin: "INDEMO000010", sector: "Industrials", cap: "mid" },
+  { key: "chem", name: "Demo Chemicals Ltd", isin: "INDEMO000011", sector: "Basic Materials", cap: "small" },
+  { key: "retail", name: "Demo Retail Ltd", isin: "INDEMO000012", sector: "Consumer Defensive", cap: "small" },
+] as const;
+
+type Line = [key: string, weight: number] | [name: string, weight: number, kind: "debt" | "cash" | "foreign_equity" | "fund", sector?: string];
+const DISCLOSURES: Record<string, Line[]> = {
+  bluechip: [["bank", 18], ["soft", 16], ["steel", 13], ["cement", 12], ["telecom", 11], ["power", 8], ["finance", 7], ["auto", 6], ["infra", 5], ["TREPS", 4, "cash"]],
+  midcap: [["auto", 15], ["power", 14], ["finance", 13], ["infra", 12], ["chem", 10], ["retail", 9], ["pharma", 8], ["soft", 6], ["bank", 5], ["TREPS", 8, "cash"]],
+  flexi: [["bank", 14], ["soft", 13], ["auto", 10], ["telecom", 9], ["finance", 8], ["retail", 8], ["chem", 7], ["pharma", 7], ["steel", 6], ["infra", 6], ["Demo 7.10% GOI 2034", 4, "debt"], ["TREPS", 8, "cash"]],
+  debt: [["Demo 7.10% GOI 2034", 40, "debt"], ["Demo Housing Finance NCD 2028", 25, "debt"], ["Demo Bank CD Mar 2027", 20, "debt"], ["Demo 364-day T-Bill", 10, "debt"], ["TREPS", 5, "cash"]],
+  niftyetf: [["bank", 20], ["soft", 18], ["steel", 14], ["cement", 13], ["telecom", 13], ["power", 8], ["finance", 7], ["auto", 7]],
+  fof: [["Demo US Technology Equity Fund", 97, "fund"], ["TREPS", 3, "cash"]],
+  usfund: [["Demo Cloud Inc", 22, "foreign_equity", "Technology"], ["Demo Chips Corp", 20, "foreign_equity", "Technology"], ["Demo Search Inc", 18, "foreign_equity", "Communication Services"], ["Demo Phones Inc", 16, "foreign_equity", "Technology"], ["Demo Social Inc", 14, "foreign_equity", "Communication Services"], ["Cash & equivalents", 10, "cash"]],
+};
+
+async function seedDisclosures(ids: Map<string, number>, today: string) {
+  const all = new Map(ids);
+  for (const x of EXTRA_STOCKS) {
+    const [ex] = await db.select({ id: schema.instrument.id }).from(schema.instrument).where(and(eq(schema.instrument.type, "stock"), eq(schema.instrument.isin, x.isin)));
+    all.set(x.key, ex?.id ?? (await db.insert(schema.instrument).values({ type: "stock", name: x.name, isin: x.isin, sector: x.sector, capClass: x.cap, underlyingClass: "equity" }).returning({ id: schema.instrument.id }))[0].id);
+  }
+  // The FoF's underlying fund: held by nobody directly, so it has no prices.
+  const [us] = await db.select({ id: schema.instrument.id }).from(schema.instrument).where(eq(schema.instrument.amfiCode, "DEMO-301"));
+  all.set("usfund", us?.id ?? (await db.insert(schema.instrument).values({ type: "mf", name: "Demo US Technology Equity Fund - Direct Plan - Growth", amfiCode: "DEMO-301", amc: "Sample Asset Management", schemeCategory: "Other Scheme - FoF Overseas", plan: "direct", underlyingClass: "international" }).returning({ id: schema.instrument.id }))[0].id);
+
+  const month = addMonths(today, -1).slice(0, 7) + "-01";
+  const funds = Object.keys(DISCLOSURES).map((k) => all.get(k)!);
+  await db.delete(schema.fundHolding).where(inArray(schema.fundHolding.fundId, funds));
+  const rows = Object.entries(DISCLOSURES).flatMap(([fund, lines]) => lines.map((l) => {
+    const known = l.length === 2 ? EXTRA_STOCKS.find((x) => x.key === l[0]) ?? SAMPLE_INSTRUMENTS.find((x) => x.key === l[0]) : undefined;
+    if (l.length === 2) {
+      const name = known ? ("row" in known ? known.row.name : known.name) : l[0];
+      return { fundId: all.get(fund)!, asOfMonth: month, holdingInstrumentId: all.get(l[0]) ?? null, name, isin: null, kind: "equity" as const, sector: null, weightPct: l[1].toFixed(4) };
+    }
+    const kind = l[2];
+    return { fundId: all.get(fund)!, asOfMonth: month, holdingInstrumentId: kind === "fund" ? all.get("usfund")! : null, name: l[0], isin: null, kind, sector: l[3] ?? null, weightPct: l[1].toFixed(4) };
+  }));
+  await db.insert(schema.fundHolding).values(rows);
+  return rows.length;
+}
+
+async function seedFixedAndLoans(arun: string, meera: string) {
+  const fixed: (typeof schema.fixedAsset.$inferInsert)[] = [
+    { profileId: arun, kind: "fd", name: "Demo Bank FD (3 years)", institution: "Demo Bank", principal: "200000", ratePct: "7.100", compounding: "quarterly", startDate: "2024-06-10", maturityDate: "2027-06-10" },
+    { profileId: arun, kind: "rd", name: "Demo Bank RD", institution: "Demo Bank", principal: "5000", ratePct: "6.800", compounding: "quarterly", startDate: "2025-01-05", maturityDate: "2027-01-05" },
+    { profileId: arun, kind: "ppf", name: "PPF account", institution: "Demo Post Office", principal: "0", ratePct: "7.100", compounding: "yearly", startDate: "2016-04-01", maturityDate: "2031-04-01", balance: "650000", balanceAsOf: "2026-04-01" },
+    { profileId: arun, kind: "sgb", name: "Sovereign gold bond 2021", principal: "120000", ratePct: "0", compounding: "yearly", startDate: "2021-03-02", maturityDate: "2029-03-02", balance: "214000", balanceAsOf: "2026-09-30", notes: "value at today's gold price; the 2.5% coupon is paid out" },
+    { profileId: arun, kind: "other", name: "Demo flat (estimated value)", principal: "4200000", ratePct: "5.000", compounding: "yearly", startDate: "2021-07-15", balance: "5200000", balanceAsOf: "2026-09-30", assetClass: "real_estate", notes: "the home the loan paid for; revalue occasionally" },
+    { profileId: arun, kind: "cash", name: "Savings account", institution: "Demo Bank", principal: "0", ratePct: "3.000", compounding: "quarterly", startDate: "2019-01-01", balance: "150000", balanceAsOf: "2026-10-01" },
+    { profileId: meera, kind: "fd", name: "Demo Co-op FD (1 year)", institution: "Demo Co-operative Bank", principal: "100000", ratePct: "7.250", compounding: "quarterly", startDate: "2025-11-20", maturityDate: "2026-11-20" },
+    { profileId: meera, kind: "epf", name: "EPF", institution: "EPFO", principal: "0", ratePct: "8.250", compounding: "yearly", startDate: "2018-07-01", balance: "340000", balanceAsOf: "2026-03-31" },
+  ];
+  for (const f of fixed) {
+    const [ex] = await db.select({ id: schema.fixedAsset.id }).from(schema.fixedAsset).where(and(eq(schema.fixedAsset.profileId, f.profileId), eq(schema.fixedAsset.name, f.name)));
+    if (!ex) await db.insert(schema.fixedAsset).values(f);
+  }
+  const loans: { row: typeof schema.loan.$inferInsert; events: Omit<typeof schema.loanEvent.$inferInsert, "loanId">[] }[] = [
+    { row: { profileId: arun, kind: "home", name: "Demo flat loan", lender: "Demo Housing Finance", principal: "3500000", ratePct: "8.600", tenureMonths: 240, firstEmiDate: "2021-08-05" },
+      events: [{ date: "2023-02-01", kind: "rate_change", ratePct: "8.850", reduce: "tenure" }, { date: "2024-03-15", kind: "prepayment", amount: "300000", reduce: "tenure" }, { date: "2025-06-01", kind: "rate_change", ratePct: "8.400", reduce: "emi" }] },
+    { row: { profileId: meera, kind: "car", name: "Demo hatchback", lender: "Demo Bank", principal: "600000", ratePct: "9.200", tenureMonths: 60, firstEmiDate: "2023-04-10" }, events: [] },
+  ];
+  for (const l of loans) {
+    const [ex] = await db.select({ id: schema.loan.id }).from(schema.loan).where(and(eq(schema.loan.profileId, l.row.profileId), eq(schema.loan.name, l.row.name)));
+    if (ex) continue;
+    const [row] = await db.insert(schema.loan).values(l.row).returning({ id: schema.loan.id });
+    if (l.events.length) await db.insert(schema.loanEvent).values(l.events.map((e) => ({ ...e, loanId: row.id })));
+  }
+  const targets: [string, string, number][] = [[arun, "equity", 60], [arun, "debt", 25], [arun, "gold", 15], [meera, "equity", 70], [meera, "debt", 20], [meera, "gold", 10]];
+  await db.insert(schema.targetAllocation).values(targets.map(([profileId, assetClass, t]) => ({ profileId, assetClass, targetPct: t.toFixed(2) }))).onConflictDoNothing();
 }

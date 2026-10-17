@@ -123,7 +123,7 @@ export async function deleteImport(batchId: string, profileIds: string[]) {
 }
 
 /** Instrument search for the manual-entry form. */
-export async function searchInstruments(q: string, types: ("stock" | "mf" | "etf")[], limit = 20) {
+export async function searchInstruments(q: string, types: ("stock" | "mf" | "etf" | "index")[], limit = 20) {
   const term = q.trim();
   if (term.length < 2) return [];
   return db.select({ id: schema.instrument.id, name: schema.instrument.name, type: schema.instrument.type, nseSymbol: schema.instrument.nseSymbol, amfiCode: schema.instrument.amfiCode, plan: schema.instrument.plan })

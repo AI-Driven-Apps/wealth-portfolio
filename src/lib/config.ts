@@ -24,6 +24,9 @@ export const config = {
   dhanClientId: (process.env.DHAN_CLIENT_ID ?? "").trim().replace(/^['"]|['"]$/g, ""),
   backfillDays: Number(process.env.BACKFILL_DAYS ?? 730),
   panPepper: process.env.PAN_PEPPER ?? "",
+  // Encrypts stored Discord webhook URLs. Falls back to JWT_SECRET; set it separately
+  // if you want rotating the session secret not to require re-entering webhooks.
+  alertsKey: process.env.ALERTS_KEY || process.env.JWT_SECRET || "",
   secureCookies: bool(process.env.SECURE_COOKIES, process.env.NODE_ENV === "production"),
 };
 

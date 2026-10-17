@@ -1,16 +1,16 @@
 {
   "name": "wealth-portfolio",
-  "version": "0.3.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "worker": "tsx worker/index.ts",
+    "worker": "tsx --conditions=react-server worker/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed-sample": "tsx scripts/seed-sample.ts",
-    "job": "tsx scripts/run-job.ts",
+    "job": "tsx --conditions=react-server scripts/run-job.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "vercel-build": "tsx scripts/migrate.ts && tsx scripts/seed-sample.ts && next build"

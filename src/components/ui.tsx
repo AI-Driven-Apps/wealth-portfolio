@@ -1,7 +1,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 import type { ReactNode } from "react";
-import { pct, compact, tone } from "@/lib/format";
+import { pct, compact, tone, classLabel } from "@/lib/format";
 
 export function PageHeader({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
   return (
@@ -94,7 +94,7 @@ export function AllocationBar({ parts, colorFor }: { parts: { name: string; valu
         {parts.map((p, i) => (
           <li key={p.name} className="flex items-center gap-2 text-[13px]">
             <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: col(p.name, i) }} />
-            <span className="truncate">{p.name.charAt(0).toUpperCase() + p.name.slice(1)}</span>
+            <span className="truncate">{classLabel(p.name)}</span>
             <span className="num ml-auto text-ink-2">{compact(p.value)}</span>
             <span className="num w-12 text-right font-medium">{pct(p.pct, 0)}</span>
           </li>
@@ -106,6 +106,8 @@ export function AllocationBar({ parts, colorFor }: { parts: { name: string; valu
 
 export const ASSET_COLORS: Record<string, string> = {
   equity: "var(--c1)", debt: "var(--c3)", hybrid: "var(--c7)", gold: "var(--c2)", silver: "var(--c8)",
-  international: "var(--c6)", other: "var(--c8)", Unclassified: "var(--c8)",
+  international: "var(--c6)", real_estate: "var(--c4)", cash: "var(--c5)", other: "var(--c8)",
+  "not itemised": "var(--c8)", Unclassified: "var(--c8)",
 };
+export { classLabel } from "@/lib/format";
 export const CAP_COLORS: Record<string, string> = { large: "var(--c1)", mid: "var(--c5)", small: "var(--c2)", Unclassified: "var(--c8)" };

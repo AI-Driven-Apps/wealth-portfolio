@@ -1,6 +1,6 @@
 # Wealth Portfolio
 
-Household portfolio tracker for Indian investors: mutual funds, SIPs, fund of funds, stocks and ETFs, with FIFO cost basis, XIRR, fund-vs-you returns and statement imports. One Next.js codebase deploys two ways:
+Household portfolio tracker for Indian investors: mutual funds, SIPs, fund of funds, stocks, ETFs, deposits, PPF/EPF/NPS, gold and loans, with FIFO cost basis, XIRR, fund look-through, net worth, what-if comparisons and Discord alerts. One Next.js codebase deploys two ways:
 
 | | Raspberry Pi 5 (Docker Compose) | Vercel |
 |---|---|---|
@@ -9,9 +9,10 @@ Household portfolio tracker for Indian investors: mutual funds, SIPs, fund of fu
 | Scheduled jobs | `worker` container (node-cron, IST) | Vercel Cron → `/api/cron/sample-extend` |
 | Statement imports | On (Python `cas-parser` container) | Off |
 | Live quotes | Dhan (read-only, optional) | Off |
+| Discord alerts | On (worker, daily 08:00 IST) | Off |
 | AI agents | Phase 7, Compose profile `ai` | Never |
 
-This release covers **phases 1–3** of the design plan: foundation, mutual funds + SIPs, equity + ETFs.
+This release covers **phases 1–6** of the design plan: foundation, mutual funds + SIPs, equity + ETFs, look-through, fixed income/alternatives/loans, and what-if + target allocation + Discord.
 
 ## What's in it
 
@@ -28,6 +29,24 @@ This release covers **phases 1–3** of the design plan: foundation, mutual fund
 - **Manual entry** for anything the imports miss.
 - **Jobs**: AMFI scheme master + daily NAV, mfapi.in NAV history (gap-only after first sync), Yahoo EOD prices, Dhan live quotes, Dhan security-id mapping, NSE equity list. All idempotent; runnable from Admin → Jobs.
 - **Nightly `pg_dump`** with 14-day retention.
+
+### Phase 4: look-through
+- **Fund disclosures** (Admin → Disclosures): upload an AMC's monthly portfolio xlsx (the fund's sheet is found by name) or a plain CSV (`name, isin, weight`, optional `sector`, `type`). Lines are classified from the ISIN (INE…01 equity, INF fund units, IN0–4 G-secs, other INE debt), weights in percent or fractions, totals/sub-totals skipped. Parsers are a registry (`src/lib/lookthrough/disclosure.ts`), so an AMC-specific one can go in front of the generic parser. Re-uploading a month replaces it.
+- **Look-through page**: direct stocks + stocks inside funds and ETFs by AMFI cap class and sector, asset classes after look-through, the largest companies you own (direct vs through which funds), and a **fund overlap matrix** (Σ min(wₐ, w_b) over common stocks).
+- **Fund of funds** resolve two (or more) levels deep: a FoF line pointing at another scheme uses that scheme's own disclosure. The FoF page lists each FoF's underlying funds.
+- **AMFI cap list** upload now also adds listed companies you hold only through funds, so they get a cap class too.
+
+### Phase 5: fixed income, alternatives, loans, net worth
+- **Fixed income & alternatives**: FD (cumulative or payout), RD, bonds, PPF, EPF, NPS, SGB, gold, REITs, cash, property. Value is accrued from rate/compounding/dates, or grown from a statement balance you update. Maturity register (last 30 / next 90 days); close or reopen on maturity.
+- **Loans & EMIs**: reducing-balance amortisation, prepayments and rate changes (lender adjusts tenure or EMI), outstanding/EMIs left/interest paid, interest and months saved by prepaying, balance chart vs the schedule without prepayments, year-by-year table.
+- **Overview is the consolidated view**: net worth = market holdings + fixed assets − loans, asset-class mix across everything, a month-end net worth trend (units held then × month-end price, accrued fixed assets, amortised loans), and what's coming up (SIPs, maturities, EMIs).
+
+### Phase 6: what-if, target allocation, Discord
+- **What-if**: replays your real dated cash flows (one holding, a product, or everything) into an index, another fund/ETF/stock, an FD at a rate, or the same holdings as a lump sum on day one / stopped after a date. Value, XIRR and worst price fall side by side, plus value over time. On the Pi, an alternative without stored history is fetched on demand.
+- **Target allocation**: per-profile targets (must total 100%) with a band per class (admin default ±5 points). Drift, and the rupees to add or trim, show on the page and the Overview. A home is left out unless you give real estate a target.
+- **Discord**: personal channels (members need the "Personal Discord alerts" grant) and household channels (admin). Subscriptions per channel: daily summary, SIP due (2 days ahead), maturities (7 days), large moves (admin threshold, default 5%), drift (weekly reminder). Webhook URLs are validated as discord.com webhooks and stored AES-256-GCM encrypted (`ALERTS_KEY`, falling back to `JWT_SECRET`); each alert is recorded so re-running the job never repeats it. Off on the Vercel demo.
+
+On upgrade, `migrate` switches each newly built module on once; members still need it ticked under Admin → Features.
 
 ### Taken from NSE-Signal (cloned and ported, the running app is untouched)
 
@@ -82,7 +101,8 @@ export DATABASE_URL=postgres://postgres@localhost:5432/wealth_portfolio JWT_SECR
 npm run db:migrate          # + ADMIN_EMAIL / ADMIN_PASSWORD for a first admin
 npm run db:seed-sample      # optional fictional household
 npm run dev
-npm test                    # 32 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note
+npm test                    # 68 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
+                            # disclosures + look-through + overlap, FD/RD/PPF accrual, loan amortisation, what-if, drift, webhooks
 npm run job -- scheme-master
 ```
 PDF parser: `cd parser && pip install -r requirements.txt && uvicorn app:app --port 8001`, then `PARSER_URL=http://127.0.0.1:8001`.
@@ -90,13 +110,15 @@ PDF parser: `cd parser && pip install -r requirements.txt && uvicorn app:app --p
 ## Layout
 
 ```
-src/app/(app)/        pages: overview, mf, sip, fof, equity, etf, holding/[id], transactions, import, admin/*
+src/app/(app)/        pages: overview, mf, sip, fof, equity, etf, fixed, loans, lookthrough, allocation, what-if, alerts, holding/[id], transactions, import, admin/*
 src/app/api/          auth refresh/logout, cron/[job], instruments search, health
-src/lib/calc/         xirr, fifo, returns, sip, dates   (pure, unit-tested)
+src/lib/calc/         xirr, fifo, returns, sip, dates, fixed, loan, whatif, drift   (pure, unit-tested)
+src/lib/lookthrough/  disclosure parsers, look-through engine + overlap, disclosure import
+src/lib/notify/       Discord sender (encrypted webhooks) and the alerts job
 src/lib/providers/    amfi + mfapi, yahoo, dhan
 src/lib/import/       cas, tradebook, contractNote, commit, parserClient
 src/lib/jobs/         every scheduled job, one registry
-src/lib/portfolio/    holdings, sips (ledger -> positions)
+src/lib/portfolio/    holdings, sips (ledger -> positions), consolidated (net worth + trend), lookthrough, whatif, allocation
 src/lib/db/schema.ts  Drizzle schema; migrations in drizzle/
 parser/               FastAPI + casparser + pdfplumber (internal network only)
 worker/               node-cron scheduler for the Pi
@@ -111,4 +133,8 @@ deploy/               backup script, Caddy snippet, database init
 - **ETF "vs NAV"** uses AMFI's end-of-day NAV, not live iNAV (no free source). **Tracking difference** compares with the price index, so dividends flatter ETFs slightly.
 - **Demat CAS** lists holdings, not trades: it fills gaps at a cost you confirm in the preview.
 - XIRR shows "—" for holdings under 30 days old.
+- **Look-through runs on the latest disclosure per fund**, so the fund side is up to ~6 weeks old (shown on the page). Sectors come from the stock's own record (Yahoo or your overrides), falling back to the AMC's industry name, so the two taxonomies can mix.
+- **Fixed-asset values are accrued**, compounding fractional periods; banks compute broken periods as simple interest, so expect differences of a few rupees. Loan positions assume every EMI was paid on schedule.
+- **Net worth trend** is computed on each page load from the ledger, month-end prices and asset/loan terms. There's no snapshot table to go stale; it is fast enough for a household (about 0.1 s on the sample data).
+- **What-if** ignores tax, exit loads and charges, and stocks/ETFs replay on adjusted prices.
 - Not financial advice. Execution stays manual; there are no order endpoints.
