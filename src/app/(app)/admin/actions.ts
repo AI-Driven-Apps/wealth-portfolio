@@ -129,7 +129,7 @@ export async function setUserFeature(fd: FormData) {
 
 export async function saveDhanToken(_: unknown, fd: FormData): Promise<R> {
   const ctx = await requireAdmin();
-  if (config.isVercel) return { error: "Dhan isn't used on the Vercel demo." };
+  if (config.isVercel) return { error: "Dhan live quotes run on the Pi only." };
   const token = String(fd.get("token") ?? "").trim();
   if (token.length < 20) return { error: "That doesn't look like a Dhan access token." };
   await setDhanToken(token);

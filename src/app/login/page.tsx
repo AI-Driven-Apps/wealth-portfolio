@@ -19,7 +19,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className="rounded-xl border border-line bg-panel p-5">
           <LoginForm next={next ?? "/"} />
         </div>
-        {config.isVercel && (
+        {config.isSample && (
           <p className="mt-4 text-[13px] text-ink-2">
             Sample-data demo. Sign in as <b>admin@sample.local</b> (admin) or <b>meera@sample.local</b> (member){process.env.SHOW_SAMPLE_PASSWORD === "1" ? <> with password <b>{process.env.SAMPLE_PASSWORD ?? "sample-portfolio-2026"}</b></> : null}. All funds, stocks and prices are fictional.
           </p>

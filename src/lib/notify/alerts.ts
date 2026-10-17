@@ -157,7 +157,7 @@ async function runChannel(ch: Channel, today: string): Promise<{ sent: number; e
 
 /** The scheduled job: every enabled channel, idempotent per alert key. */
 export async function runAlerts(): Promise<Record<string, unknown>> {
-  if (config.isVercel) return { skipped: "vercel" };
+  if (config.isSample) return { skipped: "sample data" };
   const today = todayIST();
   const channels = await db.select().from(schema.notificationChannel).where(eq(schema.notificationChannel.enabled, true));
   let sent = 0; const errors: string[] = [];

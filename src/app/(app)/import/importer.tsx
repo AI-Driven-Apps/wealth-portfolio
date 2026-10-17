@@ -23,9 +23,10 @@ const fmt = (n: number, d = 2) => n.toLocaleString("en-IN", { maximumFractionDig
 const identity = (r: PreviewRow) => r.amfiCode ?? r.isin ?? r.symbol ?? r.name.toLowerCase();
 const btnPrimary = "rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-accent-ink disabled:opacity-50";
 
-export function Importer({ basePath, features }: { basePath: string; features: string[] }) {
-  const kinds = KINDS.filter((x) => !x.feature || features.includes(x.feature));
-  const [kind, setKind] = useState<Kind>("cas");
+export function Importer({ basePath, features, pdf }: { basePath: string; features: string[]; pdf: boolean }) {
+  // PDF kinds need the parser service; without it the spreadsheet kinds still work.
+  const kinds = KINDS.filter((x) => (!x.feature || features.includes(x.feature)) && (pdf || x.accept !== ".pdf"));
+  const [kind, setKind] = useState<Kind>(kinds[0].k);
   const [state, action, pending] = useActionState(previewImport, null);
   const [, start] = useTransition();
   const k = kinds.find((x) => x.k === kind)!;
@@ -42,6 +43,7 @@ export function Importer({ basePath, features }: { basePath: string; features: s
 
   return (
     <div className="space-y-4">
+      {!pdf && <p className="rounded-lg bg-accent-soft px-3 py-2 text-[13px] text-accent">PDF statements (CAS, contract notes) need the parser service, which isn&apos;t configured here. Tradebooks, spreadsheets, deposits and loans import as usual.</p>}
       <div className="flex flex-wrap gap-1.5" role="tablist">
         {kinds.map((x) => (
           <button key={x.k} role="tab" aria-selected={kind === x.k} onClick={() => setKind(x.k)}

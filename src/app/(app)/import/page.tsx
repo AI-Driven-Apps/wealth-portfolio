@@ -12,7 +12,7 @@ const SRC: Record<string, string> = { cas: "MF statement", demat_cas: "Demat sta
 
 export default async function ImportPage() {
   const ctx = await requireCtx("imports");
-  if (!config.importsEnabled) return <Empty title="Imports are off on this deployment">The Vercel demo runs on sample data only.</Empty>;
+  if (!config.importsEnabled) return <Empty title="Imports are off on this deployment">{config.isSample ? "This deployment runs on fictional sample data only." : "IMPORTS_ENABLED is off."}</Empty>;
   const batches = ctx.profileIds.length ? await db.select({ b: schema.importBatch, profile: schema.profile.name })
     .from(schema.importBatch).innerJoin(schema.profile, eq(schema.profile.id, schema.importBatch.profileId))
     .where(inArray(schema.importBatch.profileId, ctx.profileIds)).orderBy(desc(schema.importBatch.createdAt)).limit(30) : [];
@@ -22,7 +22,7 @@ export default async function ImportPage() {
   return (
     <>
       <PageHeader title="Import" sub={single ? <>Importing into <b>{profileName}</b>. Re-importing the same file is safe: rows already saved are skipped.</> : undefined} />
-      {single ? <Importer basePath={config.basePath} features={[...ctx.features]} /> : <Notice kind="info">{ctx.scope === "household" ? "Switch to a single profile first: imports go into one person's portfolio." : "You have view-only access to this profile."}</Notice>}
+      {single ? <Importer basePath={config.basePath} features={[...ctx.features]} pdf={config.pdfImportsEnabled} /> : <Notice kind="info">{ctx.scope === "household" ? "Switch to a single profile first: imports go into one person's portfolio." : "You have view-only access to this profile."}</Notice>}
       <Card title="Import history" className="mt-6" pad={false}>
         {!batches.length ? <p className="px-4 py-6 text-ink-3">No imports yet.</p> : (
           <div className="overflow-x-auto"><table>

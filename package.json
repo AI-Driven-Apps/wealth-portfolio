@@ -13,7 +13,7 @@
     "job": "tsx --conditions=react-server scripts/run-job.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "vercel-build": "tsx scripts/migrate.ts && tsx scripts/seed-sample.ts && next build"
+    "vercel-build": "tsx scripts/migrate.ts && tsx scripts/prepare-data.ts && next build"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",

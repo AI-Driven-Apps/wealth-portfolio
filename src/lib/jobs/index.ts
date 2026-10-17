@@ -269,10 +269,10 @@ export const sampleExtend: JobFn = async () => ({ rows: await extendSampleData()
 
 /**
  * Fills price history for one instrument back to `from`, on demand (a what-if
- * alternative nobody holds has none). Pi only; the Vercel demo makes no outside calls.
+ * alternative nobody holds has none). Never in sample mode: the demo makes no outside calls.
  */
 export async function ensureHistory(id: number, from: string): Promise<number> {
-  if (config.isVercel) return 0;
+  if (config.isSample) return 0;
   const [ins] = await db.select().from(schema.instrument).where(eq(schema.instrument.id, id));
   if (!ins) return 0;
   const [first] = await db.select({ d: schema.priceHistory.date }).from(schema.priceHistory)
@@ -289,21 +289,58 @@ export async function ensureHistory(id: number, from: string): Promise<number> {
 
 // ---------------------------------------------------------------- registry
 
-export const JOBS: Record<string, { fn: JobFn; label: string; vercel: boolean }> = {
-  "scheme-master": { fn: schemeMaster, label: "AMFI scheme list + today's NAV", vercel: false },
-  "nav-history": { fn: navHistory, label: "MF NAV history (mfapi.in)", vercel: false },
-  prices: { fn: prices, label: "Stock / ETF / index EOD prices (Yahoo)", vercel: false },
-  "live-quotes": { fn: liveQuotes, label: "Live quotes (Dhan, market hours)", vercel: false },
-  "dhan-scrip-master": { fn: dhanScripMaster, label: "Dhan security id mapping", vercel: false },
-  "nse-equity-list": { fn: nseEquityList, label: "NSE equity list (names + ISINs)", vercel: false },
-  alerts: { fn: runAlerts, label: "Discord alerts (summary, SIPs, maturities, moves, drift)", vercel: false },
-  "sample-extend": { fn: sampleExtend, label: "Roll sample data forward to today", vercel: true },
+interface JobDef {
+  fn: JobFn;
+  label: string;
+  /** Which DATA_MODE it belongs to: market data never touches the demo, and vice versa. */
+  mode: "live" | "sample";
+  /** Needs the Pi (Dhan, minute-level schedules). */
+  piOnly?: boolean;
+}
+
+export const JOBS: Record<string, JobDef> = {
+  "scheme-master": { fn: schemeMaster, label: "AMFI scheme list + today's NAV", mode: "live" },
+  "nav-history": { fn: navHistory, label: "MF NAV history (mfapi.in)", mode: "live" },
+  prices: { fn: prices, label: "Stock / ETF / index EOD prices (Yahoo)", mode: "live" },
+  "live-quotes": { fn: liveQuotes, label: "Live quotes (Dhan, market hours)", mode: "live", piOnly: true },
+  "dhan-scrip-master": { fn: dhanScripMaster, label: "Dhan security id mapping", mode: "live", piOnly: true },
+  "nse-equity-list": { fn: nseEquityList, label: "NSE equity list (names + ISINs)", mode: "live" },
+  alerts: { fn: runAlerts, label: "Discord alerts (summary, SIPs, maturities, moves, drift)", mode: "live" },
+  daily: { fn: () => runDaily(), label: "Daily run: everything above in order (Vercel Cron)", mode: "live" },
+  "sample-extend": { fn: sampleExtend, label: "Roll sample data forward to today", mode: "sample" },
 };
 
-export async function runJob(name: string): Promise<{ id: number; status: "ok" | "error"; detail: JobResult }> {
+/** Whether a job may run on this deployment, and why not. */
+export function jobBlocked(name: string): string | null {
   const job = JOBS[name];
-  if (!job) throw new Error(`Unknown job ${name}`);
-  if (config.isVercel && !job.vercel) throw new Error(`${name} does not run on the Vercel demo`);
+  if (!job) return `Unknown job ${name}`;
+  if (job.mode !== config.dataMode) return `${name} only runs with DATA_MODE=${job.mode}`;
+  if (job.piOnly && config.isVercel) return `${name} runs on the Pi only`;
+  return null;
+}
+
+/**
+ * Vercel's Hobby plan runs cron at most once a day, so one cron calls this: the
+ * Pi worker's nightly jobs in dependency order. Each step is idempotent; a step
+ * that would start after the time budget is left for tomorrow (and reported).
+ */
+async function runDaily(budgetMs = 240_000): Promise<JobResult> {
+  const t0 = Date.now();
+  const steps = ["scheme-master", "nav-history", "prices", "alerts"];
+  if (new Date(Date.now() + 330 * 60_000).getUTCDay() === 0) steps.push("nse-equity-list"); // Sundays, IST
+  const done: Record<string, string> = {}, skipped: string[] = [];
+  for (const s of steps) {
+    if (Date.now() - t0 > budgetMs) { skipped.push(s); continue; }
+    const r = await runJob(s);
+    done[s] = r.status;
+  }
+  return { done, skipped, seconds: Math.round((Date.now() - t0) / 1000) };
+}
+
+export async function runJob(name: string): Promise<{ id: number; status: "ok" | "error"; detail: JobResult }> {
+  const blocked = jobBlocked(name);
+  if (blocked) throw new Error(blocked);
+  const job = JOBS[name];
   const [run] = await db.insert(schema.jobRun).values({ job: name }).returning({ id: schema.jobRun.id });
   try {
     const detail = await job.fn();

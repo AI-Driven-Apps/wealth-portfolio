@@ -79,7 +79,7 @@ export default async function WhatIfPage({ searchParams }: { searchParams: Promi
           </div>
           {(r.replay.skipped.length > 0 || r.replay.shortfall > 1) && (
             <div className="mt-4 space-y-2">
-              {r.replay.skipped.length > 0 && <Notice>{r.replay.skipped.length} investment{r.replay.skipped.length > 1 ? "s" : ""} ({compact(r.replay.skipped.reduce((s, f) => s - f.amount, 0))}) came before the alternative's price history starts and {r.replay.skipped.length > 1 ? "were" : "was"} left out, so the two columns don't cover the same money.{config.isVercel ? "" : " History is fetched on demand; try again later if the source was slow."}</Notice>}
+              {r.replay.skipped.length > 0 && <Notice>{r.replay.skipped.length} investment{r.replay.skipped.length > 1 ? "s" : ""} ({compact(r.replay.skipped.reduce((s, f) => s - f.amount, 0))}) came before the alternative's price history starts and {r.replay.skipped.length > 1 ? "were" : "was"} left out, so the two columns don't cover the same money.{config.isSample ? "" : " History is fetched on demand; try again later if the source was slow."}</Notice>}
               {r.replay.shortfall > 1 && <Notice>You withdrew {compact(r.replay.shortfall)} more than the alternative would have been worth at the time.</Notice>}
             </div>
           )}

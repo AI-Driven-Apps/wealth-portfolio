@@ -1,16 +1,19 @@
 import { desc } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db";
-import { JOBS } from "@/lib/jobs";
+import { JOBS, jobBlocked } from "@/lib/jobs";
 import { config } from "@/lib/config";
 import { PageHeader, Card, Badge, btnGhost } from "@/components/ui";
 import { runJobNow } from "../actions";
 
 export const metadata = { title: "Jobs" };
 
-const SCHEDULE: Record<string, string> = config.isVercel
-  ? { "sample-extend": "daily, Vercel Cron" }
-  : { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST", alerts: "daily 08:00 IST" };
+const VERCEL_DAILY = "in the daily run, 00:00 IST (production only)";
+const SCHEDULE: Record<string, string> = !config.isVercel
+  ? { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST", alerts: "daily 08:00 IST", daily: "manual (the worker schedules each job itself)" }
+  : config.isSample
+    ? { "sample-extend": "at every build (previews don't run Vercel Cron)" }
+    : { daily: "Vercel Cron, 00:00 IST", "scheme-master": VERCEL_DAILY, "nav-history": VERCEL_DAILY, prices: VERCEL_DAILY, alerts: VERCEL_DAILY, "nse-equity-list": "in the daily run on Sundays" };
 
 const when = (d: Date | null) => d ? d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -18,10 +21,10 @@ export default async function JobsPage() {
   await requireAdmin();
   const runs = await db.select().from(schema.jobRun).orderBy(desc(schema.jobRun.startedAt)).limit(60);
   const last = (job: string) => runs.find((r) => r.job === job);
-  const names = Object.keys(JOBS).filter((n) => (config.isVercel ? JOBS[n].vercel : n !== "sample-extend"));
+  const names = Object.keys(JOBS).filter((n) => !jobBlocked(n));
   return (
     <>
-      <PageHeader title="Jobs" sub={config.isVercel ? "On Vercel only the sample-data job runs." : "Scheduled by the worker container. Every job is safe to re-run."} />
+      <PageHeader title="Jobs" sub={config.isSample ? "Sample data: only the demo job runs." : config.isVercel ? "One Vercel Cron runs the daily sequence; you can run any step by hand. Every job is safe to re-run." : "Scheduled by the worker container. Every job is safe to re-run."} />
       <Card pad={false}>
         <div className="overflow-x-auto"><table>
           <thead><tr><th>Job</th><th>Schedule</th><th>Last run</th><th>Result</th><th /></tr></thead>

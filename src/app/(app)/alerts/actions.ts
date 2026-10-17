@@ -22,7 +22,7 @@ async function channelFor(id: string) {
 
 export async function addChannel(_: unknown, fd: FormData): Promise<R> {
   const ctx = await requireCtx();
-  if (config.isVercel) return { error: "Discord alerts are switched off on the demo." };
+  if (config.isSample) return { error: "Discord alerts are switched off on the demo." };
   const scope = fd.get("scope") === "global" ? "global" : "user";
   if (scope === "global" && !isAdmin(ctx)) return { error: "Only the admin can add household channels." };
   if (scope === "user" && !isAdmin(ctx) && !ctx.features.has("discord_user")) return { error: "Personal alerts aren't enabled for you. Ask the admin." };
@@ -67,7 +67,7 @@ export async function toggleSubscription(fd: FormData) {
 export async function testChannel(_: unknown, fd: FormData): Promise<R> {
   try {
     const { ctx, ch } = await channelFor(String(fd.get("id")));
-    if (config.isVercel) return { error: "Discord alerts are switched off on the demo." };
+    if (config.isSample) return { error: "Discord alerts are switched off on the demo." };
     const err = await sendTest(ch);
     await audit(ctx.user.id, "channel.test", { id: ch.id, ok: !err });
     revalidatePath("/alerts");

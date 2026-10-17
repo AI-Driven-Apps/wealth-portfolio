@@ -55,7 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
       <main className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-7">
-        {config.isVercel && (
+        {config.isSample && (
           <div className="mb-4 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">Sample data: every fund, stock and price here is fictional.</div>
         )}
         {ctx.user.mustChangePassword && (

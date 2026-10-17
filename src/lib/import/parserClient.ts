@@ -3,7 +3,7 @@ import { config } from "@/lib/config";
 
 /** Send a PDF to the internal Python parser. The file is never written to disk on either side. */
 export async function callParser(path: "/cas" | "/contract-note", file: File, password: string): Promise<unknown> {
-  if (!config.importsEnabled) throw new Error("PDF imports are switched off on this deployment.");
+  if (!config.pdfImportsEnabled) throw new Error(config.isVercel ? "PDF imports need PARSER_URL (an https parser service) and PARSER_SECRET on this deployment. Use the spreadsheet, tradebook and deposit imports meanwhile." : "PDF imports are switched off on this deployment.");
   const fd = new FormData();
   fd.append("file", file, file.name);
   fd.append("password", password);

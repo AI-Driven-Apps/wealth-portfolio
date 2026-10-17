@@ -2,12 +2,14 @@
 // instrument is invented and clearly named "Demo …" so nobody mistakes the
 // numbers for a real fund's. Prices are a deterministic random walk, so the
 // demo looks the same on every deploy and can be rolled forward daily.
-import { and, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, notLike, or, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { addDays, addMonths, fromDayNum, toDayNum, todayIST } from "@/lib/calc/dates";
 import { expectedInstalments } from "@/lib/calc/sip";
 
 export const SAMPLE_START = "2019-01-01";
+export const SAMPLE_EMAIL_DOMAIN = "@sample.local";
+export const SAMPLE_PROFILES = ["Arun (sample)", "Meera (sample)"] as const;
 
 interface SampleInstrument {
   key: string;
@@ -164,8 +166,8 @@ export async function seedSampleHousehold(adminUserId: string, memberUserId: str
     const [p] = await db.insert(schema.profile).values({ name, panLast4: "000D" }).returning({ id: schema.profile.id });
     return p.id;
   };
-  const arun = await mk("Arun (sample)");
-  const meera = await mk("Meera (sample)");
+  const arun = await mk(SAMPLE_PROFILES[0]);
+  const meera = await mk(SAMPLE_PROFILES[1]);
   await db.insert(schema.profileAccess).values([{ userId: adminUserId, profileId: arun }, { userId: adminUserId, profileId: meera }]).onConflictDoNothing();
   if (memberUserId) await db.insert(schema.profileAccess).values({ userId: memberUserId, profileId: meera, level: "manage" }).onConflictDoNothing();
 
@@ -314,4 +316,49 @@ async function seedFixedAndLoans(arun: string, meera: string) {
   }
   const targets: [string, string, number][] = [[arun, "equity", 60], [arun, "debt", 25], [arun, "gold", 15], [meera, "equity", 70], [meera, "debt", 20], [meera, "gold", 10]];
   await db.insert(schema.targetAllocation).values(targets.map(([profileId, assetClass, t]) => ({ profileId, assetClass, targetPct: t.toFixed(2) }))).onConflictDoNothing();
+}
+
+// ---------------------------------------------------------------- data-mode guards
+
+const DEMO_INSTRUMENT = sql`(${schema.instrument.amfiCode} like 'DEMO-%' or ${schema.instrument.nseSymbol} like 'DEMO%' or ${schema.instrument.isin} like 'INDEMO%')`;
+
+/** Anything that isn't the demo: a real login, or a transaction that didn't come from the seed. */
+export async function realDataSummary(): Promise<string | null> {
+  const users = await db.select({ email: schema.appUser.email }).from(schema.appUser).where(notLike(schema.appUser.email, `%${SAMPLE_EMAIL_DOMAIN}`)).limit(3);
+  const [{ n }] = await db.execute<{ n: number }>(sql`select count(*)::int as n from txn where source <> 'sample'`);
+  if (!users.length && !Number(n)) return null;
+  return [users.length ? `logins ${users.map((u) => u.email.replace(/^(.).*(@.*)$/, "$1…$2")).join(", ")}` : "", Number(n) ? `${n} non-sample transactions` : ""].filter(Boolean).join(" and ");
+}
+
+export async function hasSampleData(): Promise<boolean> {
+  const [{ n }] = await db.execute<{ n: number }>(sql`select count(*)::int as n from app_user where email like ${"%" + SAMPLE_EMAIL_DOMAIN}`);
+  return Number(n) > 0;
+}
+
+/**
+ * Removes the demo: its logins, its two profiles (their ledger, plans, deposits,
+ * loans and targets cascade) and the fictional instruments nobody else holds.
+ */
+export async function removeSampleData() {
+  const users = await db.delete(schema.appUser).where(like(schema.appUser.email, `%${SAMPLE_EMAIL_DOMAIN}`)).returning({ id: schema.appUser.id });
+  const profiles = await db.delete(schema.profile).where(inArray(schema.profile.name, [...SAMPLE_PROFILES])).returning({ id: schema.profile.id });
+  const instruments = await db.delete(schema.instrument).where(and(DEMO_INSTRUMENT,
+    sql`${schema.instrument.id} not in (select instrument_id from txn union select instrument_id from sip_plan)`)).returning({ id: schema.instrument.id });
+  return { users: users.length, profiles: profiles.length, instruments: instruments.length };
+}
+
+/** The demo logins (admin + member, sharing SAMPLE_PASSWORD) and the fictional household. */
+export async function seedSample(password: string, hash: (pw: string) => Promise<string>, builtFeatures: string[]) {
+  const user = async (email: string, name: string, role: "admin" | "member") => {
+    const [ex] = await db.select().from(schema.appUser).where(eq(schema.appUser.email, email));
+    if (ex) return ex.id;
+    const [u] = await db.insert(schema.appUser).values({ email, name, role, passwordHash: await hash(password) }).returning({ id: schema.appUser.id });
+    return u.id;
+  };
+  const admin = await user(`admin${SAMPLE_EMAIL_DOMAIN}`, "Arun (sample admin)", "admin");
+  const member = await user(`meera${SAMPLE_EMAIL_DOMAIN}`, "Meera (sample member)", "member");
+  for (const key of builtFeatures) {
+    await db.insert(schema.userFeature).values({ userId: member, key, enabled: key !== "imports" }).onConflictDoNothing();
+  }
+  return seedSampleHousehold(admin, member);
 }

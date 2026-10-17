@@ -2,15 +2,18 @@
 
 Household portfolio tracker for Indian investors: mutual funds, SIPs, fund of funds, stocks, ETFs, deposits, PPF/EPF/NPS, gold and loans, with FIFO cost basis, XIRR, fund look-through, net worth, what-if comparisons and Discord alerts. One Next.js codebase deploys two ways:
 
-| | Raspberry Pi 5 (Docker Compose) | Vercel |
-|---|---|---|
-| Data | Your real portfolio | Fictional sample household only |
-| Database | Existing `shared-postgres`, database `wealth_portfolio` | Neon / Supabase (Mumbai) |
-| Scheduled jobs | `worker` container (node-cron, IST) | Vercel Cron → `/api/cron/sample-extend` |
-| Statement imports | On (Python `cas-parser` container) | Off |
-| Live quotes | Dhan (read-only, optional) | Off |
-| Discord alerts | On (worker, daily 08:00 IST) | Off |
-| AI agents | Phase 7, Compose profile `ai` | Never |
+| | Raspberry Pi 5 (Docker Compose) | Vercel Production (`DATA_MODE=live`) | Vercel Preview (`DATA_MODE=sample`) |
+|---|---|---|---|
+| Data | Your real portfolio | Your real portfolio | Fictional sample household |
+| Database | Existing `shared-postgres`, database `wealth_portfolio` | Supabase / Neon (Mumbai) | A **separate** Supabase / Neon database |
+| Scheduled jobs | `worker` container (node-cron, IST) | One Vercel Cron → `/api/cron/daily`, 00:00 IST | None (sample data is rolled forward at each build) |
+| Spreadsheet, tradebook, deposit, loan imports | On | On | Off |
+| PDF imports (CAS, contract notes) | On (`cas-parser` container) | Only with an https `PARSER_URL` + `PARSER_SECRET` | Off |
+| Live quotes | Dhan (read-only, optional) | Off (EOD prices only) | Off |
+| Discord alerts | On (worker, daily 08:00 IST) | On (in the daily run) | Off |
+| AI agents | Phase 7, Compose profile `ai` | Never | Never |
+
+Two independent switches: `DEPLOY_TARGET` (pi / vercel) is *where* it runs, `DATA_MODE` (live / sample) is *whose data*. Vercel defaults to sample and the Pi to live.
 
 This release covers **phases 1–6** of the design plan: foundation, mutual funds + SIPs, equity + ETFs, look-through, fixed income/alternatives/loans, and what-if + target allocation + Discord.
 
@@ -83,20 +86,35 @@ On upgrade, `migrate` switches each newly built module on once; members still ne
 
 Restore a backup: `pg_restore -d "$DATABASE_URL" --clean --if-exists backups/<file>.dump`
 
-## Deploy the Vercel demo
+## Deploy on Vercel: Production = real data, Preview = sample
 
-1. Create a Postgres (Supabase or Neon, Mumbai region) and a Vercel project from this repo.
-2. Environment variables:
-   - `DEPLOY_TARGET=vercel`, `JWT_SECRET`, `CRON_SECRET`, `SAMPLE_PASSWORD`, and `SHOW_SAMPLE_PASSWORD=1` if the login page should show it.
-   - **Supabase:** don't use the direct `db.<ref>.supabase.co` string. It is IPv6-only and Vercel can't reach it (`ENETUNREACH 2406:…`). In Supabase → **Connect**, copy:
-     - **Transaction pooler** (port 6543) → `DATABASE_URL` (used by the app at runtime)
-     - **Session pooler** (port 5432) → `MIGRATION_DATABASE_URL` (used by migrations and the sample seed during the build)
+Each Vercel environment gets its own variables (Project → Settings → Environment Variables, tick **Production** or **Preview**) and **its own database**. Never point both at the same one: a Preview build refuses to load sample data into a database that has real logins or transactions, so the build fails instead of mixing them.
 
-     Both look like `postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:<port>/postgres`; note the user is `postgres.<project-ref>`.
-   - **Neon:** the pooled string for `DATABASE_URL`, the direct one for `MIGRATION_DATABASE_URL`.
-3. Deploy. `npm run vercel-build` migrates, loads the sample household and builds. Vercel Cron rolls the sample prices forward daily.
+1. Create two Postgres databases in the Mumbai region, e.g. two Supabase projects (or two Neon branches): one for production, one for previews.
+2. Variables for **both** environments: `DEPLOY_TARGET=vercel`, `JWT_SECRET`, `CRON_SECRET`.
+3. **Production** only:
+   - `DATA_MODE=live`
+   - `DATABASE_URL` / `MIGRATION_DATABASE_URL` → the production database (see the connection strings below)
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD` (and optionally `ADMIN_NAME`): the first admin, created when the database has no users; you must change the password at first sign-in. Ignored in sample mode, so these can't leak into a preview.
+   - `PAN_PEPPER`, and `ALERTS_KEY` if you use Discord alerts
+   - optional: `PARSER_URL` (https) + `PARSER_SECRET` (16+ chars) for CAS/contract-note PDFs, pointing at the `parser/` service hosted somewhere you trust. Without them the PDF import tabs are hidden; tradebooks, spreadsheets, deposits and loans still import.
+4. **Preview** only: `DATA_MODE=sample`, `DATABASE_URL` / `MIGRATION_DATABASE_URL` → the preview database, `SAMPLE_PASSWORD`, and `SHOW_SAMPLE_PASSWORD=1` if the login page should show it.
+5. Deploy. `npm run vercel-build` runs `migrate`, then `prepare-data` (sample: load the demo household; live: create the first admin), then `next build`.
+6. In Vercel → Settings → Deployment Protection, protect at least Preview deployments; consider it for Production too (the app has its own login and a 5-failures-per-15-minutes limit per IP, kept in the database so it holds across serverless instances).
 
-Sign in as `admin@sample.local` (admin) or `meera@sample.local` (member). All funds, stocks and prices are fictional ("Demo …").
+**Switching an existing demo database to real data:** set `DATA_MODE=live` and `REMOVE_SAMPLE_DATA=1` on Production, deploy once (the sample logins, the two sample profiles and the fictional instruments are deleted, then your admin is created), and remove `REMOVE_SAMPLE_DATA` afterwards.
+
+**Prices on Vercel:** Vercel Cron runs on production only, and on the Hobby plan at most once a day, so one cron (`/api/cron/daily`, 18:30 UTC = 00:00 IST) runs AMFI NAVs → NAV history → stock/ETF prices → Discord alerts (and the NSE equity list on Sundays) within a time budget; anything that doesn't fit is reported in Admin → Jobs and picked up the next night. Any step can be run by hand there.
+
+**Connection strings:**
+- **Supabase:** don't use the direct `db.<ref>.supabase.co` string. It is IPv6-only and Vercel can't reach it (`ENETUNREACH 2406:…`). In Supabase → **Connect**, copy:
+  - **Transaction pooler** (port 6543) → `DATABASE_URL` (used by the app at runtime)
+  - **Session pooler** (port 5432) → `MIGRATION_DATABASE_URL` (used by migrations and data preparation during the build)
+
+  Both look like `postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:<port>/postgres`; note the user is `postgres.<project-ref>`, and replace `[YOUR-PASSWORD]` including the brackets.
+- **Neon:** the pooled string for `DATABASE_URL`, the direct one for `MIGRATION_DATABASE_URL`.
+
+On a preview, sign in as `admin@sample.local` (admin) or `meera@sample.local` (member). All funds, stocks and prices there are fictional ("Demo …").
 
 ## Local development
 
@@ -104,7 +122,7 @@ Sign in as `admin@sample.local` (admin) or `meera@sample.local` (member). All fu
 npm install
 export DATABASE_URL=postgres://postgres@localhost:5432/wealth_portfolio JWT_SECRET=$(openssl rand -hex 32) SECURE_COOKIES=false
 npm run db:migrate          # + ADMIN_EMAIL / ADMIN_PASSWORD for a first admin
-npm run db:seed-sample      # optional fictional household
+npm run db:seed-sample      # optional fictional household (refuses a database with real data: use a separate one)
 npm run dev
 npm test                    # 80 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
                             # disclosures + look-through + overlap, FD/RD/PPF accrual, loan amortisation, what-if, drift, webhooks,

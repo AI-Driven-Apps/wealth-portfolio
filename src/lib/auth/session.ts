@@ -2,7 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { SESSION_COOKIE, PROFILE_COOKIE, SESSION_TTL_SEC, cookieOptions, signSession, verifySession } from "./tokens";
 import { verifyPassword } from "./password";
@@ -11,15 +11,18 @@ import { accessFor } from "./access";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-// ---- login rate limit: 5 attempts / 15 min per IP (same policy as NSE-Signal) ----
-const attempts = new Map<string, number[]>();
-function rateLimited(ip: string): boolean {
-  const now = Date.now(), win = 15 * 60_000;
-  const list = (attempts.get(ip) ?? []).filter((t) => now - t < win);
-  attempts.set(ip, list);
-  return list.length >= 5;
+// ---- login rate limit: 5 failures / 15 min per IP (same policy as NSE-Signal) ----
+// Counted from the audit log, not memory: on Vercel every serverless instance
+// would otherwise keep its own counter and the limit would barely apply.
+async function rateLimited(ip: string): Promise<boolean> {
+  const [{ n }] = await db.execute<{ n: number }>(sql`
+    select count(*)::int as n from audit_log
+    where action = 'login.fail' and detail->>'ip' = ${ip} and at > now() - interval '15 minutes'`);
+  return Number(n) >= 5;
 }
-function noteFailure(ip: string) { attempts.set(ip, [...(attempts.get(ip) ?? []), Date.now()]); }
+async function noteFailure(ip: string, email: string) {
+  await audit(null, "login.fail", { ip, email: email.trim().toLowerCase().slice(0, 120) });
+}
 
 async function clientIp() {
   const h = await headers();
@@ -28,10 +31,10 @@ async function clientIp() {
 
 export async function login(email: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const ip = await clientIp();
-  if (rateLimited(ip)) return { ok: false, error: "Too many attempts. Try again in 15 minutes." };
+  if (await rateLimited(ip)) return { ok: false, error: "Too many attempts. Try again in 15 minutes." };
   const [user] = await db.select().from(schema.appUser).where(eq(schema.appUser.email, email.trim().toLowerCase()));
   if (!user || !user.isActive || !(await verifyPassword(user.passwordHash, password))) {
-    noteFailure(ip);
+    await noteFailure(ip, email);
     return { ok: false, error: "Email or password is wrong." };
   }
   const [s] = await db.insert(schema.session).values({

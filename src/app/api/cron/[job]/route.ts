@@ -5,7 +5,8 @@ import { runJob, JOBS } from "@/lib/jobs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// Vercel Cron sends "Authorization: Bearer $CRON_SECRET". The Pi worker calls jobs directly, not via HTTP.
+// Vercel Cron sends "Authorization: Bearer $CRON_SECRET" (and runs on production
+// deployments only). The Pi worker calls jobs directly, not via HTTP.
 function authorised(req: NextRequest) {
   const secret = process.env.CRON_SECRET ?? "";
   const got = req.headers.get("authorization") ?? "";

@@ -72,18 +72,18 @@ export default async function AlertsPage() {
 
   return (
     <>
-      <PageHeader title="Discord alerts" sub="A daily message around 08:00 IST with whatever is new: summary, SIPs due, maturities, large moves and drift. Each alert is sent once per channel." />
-      {config.isVercel && <div className="mb-4"><Notice>Discord alerts are switched off on the demo: nothing is sent from here.</Notice></div>}
+      <PageHeader title="Discord alerts" sub="A daily message (08:00 IST on the Pi, about midnight IST on Vercel) with whatever is new: summary, SIPs due, maturities, large moves and drift. Each alert is sent once per channel." />
+      {config.isSample && <div className="mb-4"><Notice>Discord alerts are switched off on the demo: nothing is sent from here.</Notice></div>}
 
       <h2 className="mb-2 text-[13px] font-semibold">Your channels <span className="font-normal text-ink-3">· about {ctx.profiles.length > 1 ? "every profile you can see" : "your profile"}</span></h2>
       {mine.map((ch) => <ChannelCard key={ch.id} ch={ch} subs={subsFor(ch.id)} features={ctx.features} />)}
-      {!config.isVercel && <Card title="Add a personal channel" className="mb-6"><AddChannel scope="user" /></Card>}
+      {!config.isSample && <Card title="Add a personal channel" className="mb-6"><AddChannel scope="user" /></Card>}
 
       {admin && (
         <>
           <h2 className="mb-2 text-[13px] font-semibold">Household channels <span className="font-normal text-ink-3">· every profile, managed by admins</span></h2>
           {global.map((ch) => <ChannelCard key={ch.id} ch={ch} subs={subsFor(ch.id)} features={new Set(ctx.features)} />)}
-          {!config.isVercel && <Card title="Add a household channel" className="mb-6"><AddChannel scope="global" /></Card>}
+          {!config.isSample && <Card title="Add a household channel" className="mb-6"><AddChannel scope="global" /></Card>}
           <Card title="Thresholds">
             <ActionForm action={saveAlertSettings} submit="Save" className="grid gap-3 sm:grid-cols-3">
               <div className="flex flex-col gap-1"><label htmlFor="band">Default drift band (± points)</label><input id="band" name="band" type="number" min="1" max="30" step="any" defaultValue={band} /></div>

@@ -1,10 +1,10 @@
-// Applies Drizzle migrations, seeds feature flags, and bootstraps the first
-// admin from ADMIN_EMAIL / ADMIN_PASSWORD when no users exist (as NSE-Signal does).
+// Applies Drizzle migrations, seeds feature flags, and (live data only) bootstraps
+// the first admin from ADMIN_EMAIL / ADMIN_PASSWORD when no users exist.
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import { db, closeDb, schema, useMigrationUrl, explainDbError } from "../src/lib/db";
 import { FEATURES } from "../src/lib/features";
-import { hashPassword } from "../src/lib/auth/password";
+import { bootstrapAdmin } from "../src/lib/bootstrap";
 
 async function main() {
   useMigrationUrl();
@@ -28,21 +28,8 @@ async function main() {
     .onConflictDoUpdate({ target: schema.appSetting.key, set: { value: built, updatedAt: new Date() } });
   if (fresh.length) console.log(`new modules switched on: ${fresh.join(", ")} (members still need a grant in Admin -> Features)`);
 
-  const [{ n }] = await db.execute<{ n: number }>(sql`select count(*)::int as n from app_user`);
-  if (Number(n) === 0) {
-    const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-    const password = process.env.ADMIN_PASSWORD;
-    if (!email || !password) {
-      console.warn("No users yet: set ADMIN_EMAIL and ADMIN_PASSWORD and re-run to create the first admin.");
-    } else {
-      const [u] = await db.insert(schema.appUser).values({
-        email, name: process.env.ADMIN_NAME ?? "Admin", passwordHash: await hashPassword(password), role: "admin", mustChangePassword: true,
-      }).returning({ id: schema.appUser.id });
-      const [p] = await db.insert(schema.profile).values({ name: process.env.ADMIN_NAME ?? "My portfolio" }).returning({ id: schema.profile.id });
-      await db.insert(schema.profileAccess).values({ userId: u.id, profileId: p.id, level: "manage" });
-      console.log(`created admin ${email} (must change password on first login)`);
-    }
-  }
+  console.log(await bootstrapAdmin());
+
 }
 
 main().then(closeDb).catch(async (e) => {

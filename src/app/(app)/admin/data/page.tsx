@@ -30,7 +30,7 @@ export default async function DataPage() {
           <ul className="space-y-2 text-[13px]">
             <li><b>Mutual fund NAV</b> — AMFI's daily NAVAll file (all schemes, ~11 pm IST), history from mfapi.in.</li>
             <li><b>Stock and ETF prices</b> — Yahoo Finance end-of-day, re-fetched over a rolling window so split/dividend adjustments never mix scales.</li>
-            <li><b>Live quotes</b> — {config.isVercel ? "not used on the demo." : "Dhan, read-only, every 5 minutes in market hours (needs a Data API subscription)."}</li>
+            <li><b>Live quotes</b> — {config.isVercel ? "Pi only (needs the worker's 5-minute schedule)." : "Dhan, read-only, every 5 minutes in market hours (needs a Data API subscription)."}</li>
             <li><b>Cap class</b> — AMFI's half-yearly market-cap list, uploaded below.</li>
             <li><b>Sector</b> — Yahoo's company profile, or your own CSV below.</li>
           </ul>
