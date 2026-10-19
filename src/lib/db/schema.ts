@@ -103,6 +103,8 @@ export const instrument = pgTable("instrument", {
   lastNav: units("last_nav"),           // ETFs: AMFI NAV, compared with market price
   lastNavDate: date("last_nav_date"),
   historySyncedAt: timestamp("history_synced_at", { withTimezone: true }),
+  // NSE bhavcopy history has been loaded back to this date (see jobs/prices).
+  priceHistoryFrom: date("price_history_from"),
 }, (t) => [
   uniqueIndex("instrument_amfi_uq").on(t.amfiCode),
   uniqueIndex("instrument_nse_uq").on(t.type, t.nseSymbol),

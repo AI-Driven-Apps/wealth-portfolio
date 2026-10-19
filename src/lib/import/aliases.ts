@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { brokerKey, type CodeEntry } from "./codes";
 import type { ImportRow } from "./types";
+import { mergeInstrument } from "@/lib/jobs";
 
 type Alias = typeof schema.instrumentAlias.$inferSelect;
 
@@ -29,7 +30,42 @@ export async function saveCodeList(broker: string, entries: CodeEntry[]) {
       setWhere: sql`${schema.instrumentAlias.origin} = 'list'`,
     });
   }
-  return { saved: values.length, unresolved: entries.length - values.length };
+  return { saved: values.length, unresolved: entries.length - values.length, repaired: await repairCodeSymbols(source) };
+}
+
+/**
+ * A tradebook imported before its broker's codes were known created instruments
+ * with the code as their NSE symbol (HDFC "IRCINTEQNR"), which never get prices.
+ * Once the code is known: merge into the real instrument, or swap the code for the
+ * ISIN so the prices job finds it. Only instruments without an ISIN of their own
+ * (or with the same one) are touched, so a real NSE symbol that happens to equal
+ * some broker code is left alone.
+ */
+export async function repairCodeSymbols(source: string, codes?: string[]): Promise<number> {
+  const aliases = await db.select().from(schema.instrumentAlias)
+    .where(codes ? and(eq(schema.instrumentAlias.source, source), inArray(schema.instrumentAlias.code, codes)) : eq(schema.instrumentAlias.source, source));
+  if (!aliases.length) return 0;
+  const byCode = new Map(aliases.map((a) => [a.code, a]));
+  const bad: (typeof schema.instrument.$inferSelect)[] = [];
+  const all = [...byCode.keys()];
+  for (let i = 0; i < all.length; i += 1000) {
+    bad.push(...await db.select().from(schema.instrument)
+      .where(and(inArray(schema.instrument.type, ["stock", "etf"]), inArray(schema.instrument.nseSymbol, all.slice(i, i + 1000)))));
+  }
+  let fixed = 0;
+  for (const b of bad) {
+    const a = byCode.get(b.nseSymbol!)!;
+    if (b.isin && b.isin !== a.isin) continue;
+    if (a.instrumentId === b.id) continue;
+    const [target] = a.instrumentId
+      ? await db.select().from(schema.instrument).where(eq(schema.instrument.id, a.instrumentId))
+      : a.isin ? await db.select().from(schema.instrument).where(and(eq(schema.instrument.isin, a.isin), inArray(schema.instrument.type, ["stock", "etf"]), sql`${schema.instrument.id} <> ${b.id}`)).limit(1) : [];
+    if (target) await mergeInstrument(b.id, target.id);
+    else if (a.isin) await db.update(schema.instrument).set({ isin: a.isin, nseSymbol: null, name: a.name ?? b.name }).where(eq(schema.instrument.id, b.id));
+    else continue;
+    fixed++;
+  }
+  return fixed;
 }
 
 /** Remembers a code the person matched by hand, so the next import resolves it. */
@@ -39,6 +75,7 @@ export async function learnAlias(broker: string, code: string, ins: { id: number
     target: [schema.instrumentAlias.source, schema.instrumentAlias.code],
     set: { isin: v.isin, instrumentId: v.instrumentId, name: v.name, origin: "match", updatedAt: new Date() },
   });
+  await repairCodeSymbols(v.source, [code]);
 }
 
 /**

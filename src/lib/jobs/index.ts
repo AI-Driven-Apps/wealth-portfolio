@@ -8,6 +8,7 @@ import { config } from "@/lib/config";
 import { addDays, todayIST } from "@/lib/calc/dates";
 import { detectTrackedIndex, fetchMfapiHistory, fetchNavAll, fetchText } from "@/lib/providers/amfi";
 import { fetchDaily, fetchSector, toYahoo } from "@/lib/providers/yahoo";
+import { fetchBhav, fetchIndexCloses, SERIES_RANK, type BhavRow } from "@/lib/providers/nse";
 import { getLtp, parseScripMaster, SCRIP_MASTER_URL } from "@/lib/providers/dhan";
 import { extendSampleData } from "@/lib/sample";
 import { runAlerts } from "@/lib/notify/alerts";
@@ -148,41 +149,180 @@ export const navHistory: JobFn = async () => {
 
 // ---------------------------------------------------------------- stocks / ETFs / indices
 
+type Ins = typeof schema.instrument.$inferSelect;
+const isWeekday = (d: string) => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return w !== 0 && w !== 6; };
+function weekdays(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekday(d)) out.push(d);
+  return out;
+}
+async function getState(key: string): Promise<string | null> {
+  const [r] = await db.select().from(schema.appSetting).where(eq(schema.appSetting.key, key));
+  return typeof r?.value === "string" ? r.value : null;
+}
+async function setState(key: string, value: string) {
+  await db.insert(schema.appSetting).values({ key, value }).onConflictDoUpdate({ target: schema.appSetting.key, set: { value, updatedAt: new Date() } });
+}
+const isRateLimit = (e: unknown) => /too many requests|\b429\b/i.test((e as Error)?.message ?? "");
+
 /**
- * EOD prices from Yahoo, written from NSE-Signal's app/ingest.py: re-fetch the
- * whole window and upsert instead of appending, because adjusted closes are
- * rebased after every split/dividend and appending would mix price scales.
- * We also keep the raw close, which is what holdings are valued at.
+ * EOD prices. NSE's own archives first: one bhavcopy per trading day prices every
+ * stock, ETF, InvIT, REIT and gold bond we track (by ISIN, then symbol), and one
+ * file gives the index closes. Each run loads the days since the last run, then
+ * walks back through older days to fill each instrument's history from its first
+ * transaction (or BACKFILL_DAYS), as far as a time budget allows; the next run
+ * carries on. Yahoo is only asked for what NSE doesn't cover, and is dropped for
+ * the run at its first 429 (it rate-limits most servers now).
+ * Closes are raw. Returns use adj_close where an older Yahoo row has one.
  */
 export const prices: JobFn = async () => {
+  const deadline = Date.now() + (config.isVercel ? 90_000 : 480_000);
   const ids = await trackedIds();
   if (!ids.length) return { symbols: 0 };
   const list = await db.select().from(schema.instrument)
     .where(and(inArray(schema.instrument.type, ["stock", "etf", "index"]), inArray(schema.instrument.id, ids)));
+  const today = todayIST();
+  const windowStart = addDays(today, -config.backfillDays);
   const firstTxn = await db.execute<{ id: number; d: string }>(sql`select instrument_id as id, min(date)::text as d from txn group by instrument_id`);
   const firstById = new Map(firstTxn.map((r) => [Number(r.id), r.d]));
-  const windowStart = addDays(todayIST(), -config.backfillDays);
-  let rows = 0; const errors: string[] = [];
-  for (const ins of list) {
-    const sym = ins.yahooSymbol ?? (ins.nseSymbol ? toYahoo(ins.nseSymbol) : null);
-    if (!sym) continue;
-    try {
-      const first = firstById.get(ins.id);
-      const start = addDays(first && first < windowStart ? first : windowStart, -7);
-      const bars = await fetchDaily(sym, start);
-      rows += await upsertPrices(ins.id, bars);
-      const tail = bars[bars.length - 1];
-      if (tail) await setLast(ins.id, tail.close, tail.date);
-      if (ins.type === "stock" && !ins.sector) {
-        const sector = await fetchSector(sym);
-        if (sector) await db.update(schema.instrument).set({ sector }).where(eq(schema.instrument.id, ins.id));
-      }
-    } catch (e) {
-      errors.push(`${sym}: ${(e as Error).message}`);
-    }
-    await sleep(500); // be polite to Yahoo, as NSE-Signal does
+  const span = await db.select({ id: schema.priceHistory.instrumentId, lo: sql<string>`min(${schema.priceHistory.date})::text` })
+    .from(schema.priceHistory).where(inArray(schema.priceHistory.instrumentId, list.map((i) => i.id))).groupBy(schema.priceHistory.instrumentId);
+  const loById = new Map(span.map((r) => [r.id, r.lo]));
+  const startOf = (i: Ins) => { const f = firstById.get(i.id); return addDays(f && f < windowStart ? f : windowStart, -7); };
+
+  const listed = list.filter((i) => i.type !== "index");
+  const byIsin = new Map<string, Ins[]>(), bySym = new Map<string, Ins[]>();
+  for (const i of listed) {
+    if (i.isin) byIsin.set(i.isin, [...(byIsin.get(i.isin) ?? []), i]);
+    const sym = i.nseSymbol ?? i.yahooSymbol?.replace(/\.NS$/, "");
+    if (sym) bySym.set(sym.toUpperCase(), [...(bySym.get(sym.toUpperCase()) ?? []), i]);
   }
-  return { symbols: list.length, rows, errors };
+  const indices = new Map(list.filter((i) => i.type === "index").map((i) => [(i.trackedIndex ?? i.name).toLowerCase(), i]));
+  const pricedByNse = new Set<number>();
+  const symbolFix = new Map<number, string>();
+  let rows = 0;
+
+  /** One trading day for every tracked instrument. null = no file (holiday / not out yet). */
+  const loadDay = async (d: string, latest: boolean): Promise<boolean> => {
+    const bhav = await fetchBhav(d);
+    if (!bhav) return false;
+    const ix = indices.size ? await fetchIndexCloses(d) : null;
+    // Today's index file can lag the bhavcopy: leave today for the next run rather than skip it for good.
+    if (indices.size && !ix && d === today) return false;
+    const best = new Map<string, BhavRow>();
+    const rank = (s: string) => { const r = SERIES_RANK.indexOf(s); return r < 0 ? 99 : r; };
+    for (const r of bhav) { const b = best.get(r.isin); if (!b || rank(r.series) < rank(b.series)) best.set(r.isin, r); }
+    const bySymRow = new Map([...best.values()].map((r) => [r.symbol, r]));
+    const out: { instrumentId: number; date: string; close: string }[] = [];
+    for (const i of listed) {
+      const r = (i.isin && best.get(i.isin)) || (i.nseSymbol && bySymRow.get(i.nseSymbol.toUpperCase())) || undefined;
+      if (!r) continue;
+      out.push({ instrumentId: i.id, date: d, close: String(r.close) });
+      pricedByNse.add(i.id);
+      // Matched by ISIN under another symbol (a broker code, or a stale ticker): NSE's wins.
+      if (latest && r.isin === i.isin && i.nseSymbol !== r.symbol) symbolFix.set(i.id, r.symbol);
+    }
+    if (ix) {
+      for (const [name, i] of indices) {
+        const c = ix?.get(name);
+        if (c) { out.push({ instrumentId: i.id, date: d, close: String(c) }); pricedByNse.add(i.id); }
+      }
+    }
+    if (out.length) {
+      const res = await db.insert(schema.priceHistory).values(out).onConflictDoUpdate({
+        target: [schema.priceHistory.instrumentId, schema.priceHistory.date],
+        set: { close: sql`excluded.close` }, // keep any adj_close an earlier Yahoo fetch stored
+        setWhere: sql`price_history.close is distinct from excluded.close`,
+      }).returning({ d: schema.priceHistory.date });
+      rows += res.length;
+      if (latest) for (const o of out) await setLast(o.instrumentId, Number(o.close), d);
+    }
+    return true;
+  };
+
+  // 1. Days since the last run, oldest first. A missing file for today means "not out yet".
+  const errors: string[] = [];
+  const last = await getState("nse_bhav_last");
+  // First run: a month back, which bridges any gap since prices last came from Yahoo.
+  const fwdFrom = last && last >= addDays(today, -60) ? addDays(last, 1) : addDays(today, -30);
+  let loaded = last, fwdDays = 0;
+  for (const d of weekdays(fwdFrom, today)) {
+    if (Date.now() > deadline) break;
+    try {
+      const ok = await loadDay(d, true);
+      if (!ok && d === today) break;
+      loaded = d; if (ok) fwdDays++;
+    } catch (e) { errors.push(`NSE ${d}: ${(e as Error).message}`); break; }
+  }
+  if (loaded && loaded !== last) await setState("nse_bhav_last", loaded);
+  for (const [id, sym] of symbolFix) {
+    const ins = listed.find((i) => i.id === id)!;
+    const [taken] = await db.select({ id: schema.instrument.id }).from(schema.instrument).where(and(eq(schema.instrument.type, ins.type), eq(schema.instrument.nseSymbol, sym)));
+    if (!taken) await db.update(schema.instrument).set({ nseSymbol: sym }).where(eq(schema.instrument.id, id));
+    else errors.push(`${ins.nseSymbol ?? ins.name}: NSE lists ISIN ${ins.isin} as ${sym}, which another instrument already uses; run the NSE equity list job to merge them`);
+  }
+
+  // 2. History, newest day first, back to each instrument's start.
+  const firstFwd = fwdFrom;
+  const need = list.map((i) => ({ i, start: startOf(i), from: i.priceHistoryFrom ?? loById.get(i.id) ?? firstFwd })).filter((n) => n.start < n.from);
+  const backDays = [...new Set(need.flatMap((n) => weekdays(n.start, addDays(n.from, -1))))].sort().reverse();
+  let cutoff: string | null = null, backLoaded = 0;
+  for (const d of backDays) {
+    if (Date.now() > deadline) break;
+    try { if (await loadDay(d, false)) backLoaded++; cutoff = d; }
+    catch (e) { errors.push(`NSE ${d}: ${(e as Error).message}`); break; }
+  }
+  const all = cutoff === backDays[backDays.length - 1];
+  for (const n of need) {
+    // every needed day of n on or after `cutoff` was loaded (newest first)
+    const reached = all ? n.start : cutoff ? (cutoff > n.start ? cutoff : n.start) : null;
+    if (reached && reached < n.from) await db.update(schema.instrument).set({ priceHistoryFrom: reached }).where(eq(schema.instrument.id, n.i.id));
+  }
+
+  // Backfilled history (an instrument merged in, or just imported) may be newer than its last price.
+  await db.execute(sql`
+    update instrument i set last_price = p.close, last_price_date = p.date
+    from (select distinct on (instrument_id) instrument_id, date, close from price_history
+          where instrument_id in (${sql.join(list.map((i) => sql`${i.id}`), sql`, `)}) order by instrument_id, date desc) p
+    where p.instrument_id = i.id and (i.last_price_date is null or i.last_price_date < p.date)`);
+  const fresh = new Set((await db.select({ id: schema.instrument.id }).from(schema.instrument)
+    .where(and(inArray(schema.instrument.id, list.map((i) => i.id)), sql`${schema.instrument.lastPriceDate} >= ${addDays(today, -7)}`))).map((r) => r.id));
+
+  // 3. Yahoo for anything still without a recent price: BSE-only stocks, a custom Yahoo symbol, an index NSE doesn't publish.
+  let yahooBlocked = false, yahooRows = 0;
+  const rest = list.filter((i) => !pricedByNse.has(i.id) && !fresh.has(i.id));
+  for (const ins of rest) {
+    const sym = ins.yahooSymbol ?? (ins.nseSymbol ? toYahoo(ins.nseSymbol) : null);
+    if (!sym || yahooBlocked || Date.now() > deadline) continue;
+    try {
+      const bars = await fetchDaily(sym, startOf(ins));
+      yahooRows += await upsertPrices(ins.id, bars);
+      const tail = bars[bars.length - 1];
+      if (tail) { await setLast(ins.id, tail.close, tail.date); if (tail.date >= addDays(today, -7)) fresh.add(ins.id); }
+    } catch (e) {
+      if (isRateLimit(e)) { yahooBlocked = true; errors.push("Yahoo is rate-limiting this server (HTTP 429); skipped it for this run."); }
+      else errors.push(`${sym}: ${(e as Error).message}`);
+    }
+    await sleep(500);
+  }
+  // Sector is Yahoo-only and cosmetic: a few per run, never when Yahoo is refusing.
+  if (!yahooBlocked) {
+    for (const ins of listed.filter((i) => i.type === "stock" && !i.sector && i.nseSymbol).slice(0, 10)) {
+      if (Date.now() > deadline) break;
+      const sector = await fetchSector(toYahoo(ins.nseSymbol!));
+      if (sector) await db.update(schema.instrument).set({ sector }).where(eq(schema.instrument.id, ins.id));
+      await sleep(500);
+    }
+  }
+
+  const unpriced = list.filter((i) => !pricedByNse.has(i.id) && !fresh.has(i.id)).map((i) => i.nseSymbol ?? i.yahooSymbol ?? i.name);
+  return {
+    symbols: list.length, rows: rows + yahooRows, nseLatest: loaded, nseNewDays: fwdDays,
+    historyDaysLoaded: backLoaded, historyDaysLeft: cutoff ? backDays.length - backDays.indexOf(cutoff) - 1 : backDays.length,
+    ...(unpriced.length ? { unpriced, unpricedHint: "No NSE match by ISIN or symbol. A broker code (e.g. HDFC's ...EQNR) stored as a symbol is fixed by uploading that broker's code list with a tradebook; otherwise set the symbol under Admin → Data sources." } : {}),
+    ...(yahooRows ? { yahooRows } : {}),
+    errors,
+  };
 };
 
 /** Pi only: live LTP from Dhan during market hours. Updates last price, not history. */
@@ -325,7 +465,7 @@ export function jobBlocked(name: string): string | null {
  * Pi worker's nightly jobs in dependency order. Each step is idempotent; a step
  * that would start after the time budget is left for tomorrow (and reported).
  */
-async function runDaily(budgetMs = 240_000): Promise<JobResult> {
+async function runDaily(budgetMs = 170_000): Promise<JobResult> { // the prices step alone may take ~100 s; maxDuration is 300 s
   const t0 = Date.now();
   const steps = ["scheme-master", "nav-history", "prices", "alerts"];
   if (new Date(Date.now() + 330 * 60_000).getUTCDay() === 0) steps.push("nse-equity-list"); // Sundays, IST
