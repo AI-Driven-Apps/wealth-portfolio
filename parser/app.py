@@ -9,6 +9,7 @@ import json
 import os
 
 import casparser
+import pdfplumber
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
 from contract_note import parse_contract_note
@@ -89,3 +90,33 @@ async def contract_note(file: UploadFile = File(...), password: str = Form(""), 
         raise HTTPException(status_code=422, detail=f"Could not read this contract note: {_clean(str(e) or e.__class__.__name__)}")
     finally:
         buf.close()
+
+
+MAX_TABLE_ROWS = 50_000
+
+
+@app.post("/tables")
+async def tables(file: UploadFile = File(...), password: str = Form(""), x_parser_secret: str | None = Header(None)):
+    """Every table row on every page, in order, as text cells.
+
+    Used for reference lists such as a broker's scrip-code -> ISIN list; the app
+    finds the header row itself, so a table split across pages reads as one.
+    """
+    _check(x_parser_secret)
+    buf = await _read(file)
+    rows: list[list[str]] = []
+    try:
+        with pdfplumber.open(buf, password=password or None) as pdf:
+            for page in pdf.pages:
+                for table in page.extract_tables():
+                    for row in table:
+                        rows.append([" ".join((c or "").split()) for c in row])
+                        if len(rows) >= MAX_TABLE_ROWS:
+                            return {"rows": rows, "truncated": True}
+    except Exception as e:
+        if _is_password_error(e):
+            raise HTTPException(status_code=422, detail="Wrong PDF password.")
+        raise HTTPException(status_code=422, detail=f"Could not read tables from this PDF: {_clean(str(e) or e.__class__.__name__)}")
+    finally:
+        buf.close()
+    return {"rows": rows, "truncated": False}

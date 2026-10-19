@@ -14,6 +14,9 @@ import { commitFixed, commitLoans } from "@/lib/import/commitRecords";
 import { sipCandidates, type SipCandidate } from "@/lib/portfolio/sips";
 import type { ImportPreview } from "@/lib/import/types";
 import { audit } from "@/lib/audit";
+import { readGrids } from "@/lib/import/columns";
+import { parseCodeList } from "@/lib/import/codes";
+import { saveCodeList, forgetCodes } from "@/lib/import/aliases";
 
 export type TxnPreview = Awaited<ReturnType<typeof enrichPreview>> & { columns?: SpreadsheetPreview["columns"] };
 export type RecordsResult =
@@ -50,7 +53,9 @@ export async function previewImport(_: unknown, fd: FormData): Promise<Result> {
     if (kind === "cas") {
       p = mapCas(await callParser("/cas", file, password) as never, file.name);
     } else if (kind === "tradebook") {
+      const note = await importCodeList(fd.get("codes"), broker, password);
       p = parseTradebook(await buf(), file.name, broker, accountRef);
+      if (note) p.warnings.unshift(note);
     } else if (kind === "contract_note") {
       p = mapContractNote(await callParser("/contract-note", file, password) as never, file.name, broker, accountRef);
     } else if (kind === "spreadsheet") {
@@ -64,6 +69,33 @@ export async function previewImport(_: unknown, fd: FormData): Promise<Result> {
   } catch (e) {
     return { error: (e as Error).message };
   }
+}
+
+/** The optional broker code list sent with a tradebook: saved before the tradebook is read. */
+async function importCodeList(f: FormDataEntryValue | null, broker: string, password: string): Promise<string | null> {
+  if (!(f instanceof File) || f.size === 0) return null;
+  if (f.size > 15 * 1024 * 1024) throw new Error("Code list is larger than 15 MB.");
+  let grid: unknown[][];
+  if (/\.pdf$/i.test(f.name)) {
+    grid = (await callParser("/tables", f, password) as { rows: string[][] }).rows;
+  } else if (SPREADSHEET.test(f.name)) {
+    const sheets = readGrids(new Uint8Array(await f.arrayBuffer()), f.name);
+    grid = sheets.find((s) => parseCodeList(s.grid).found)?.grid ?? [];
+  } else throw new Error("Upload the code list as .csv, .xls, .xlsx or .pdf.");
+  const list = parseCodeList(grid);
+  if (!list.found) throw new Error(`Couldn't find a code column and an ISIN (or NSE symbol) column in ${f.name}.`);
+  if (!list.entries.length) throw new Error(`${f.name} has the right columns but no codes under them.`);
+  const r = await saveCodeList(broker, list.entries);
+  return `Saved ${r.saved.toLocaleString("en-IN")} ${broker} codes from ${f.name}${r.unresolved ? ` (${r.unresolved} NSE symbols not found yet; the NSE equity list job adds them)` : ""}. Codes you matched by hand keep your match.`;
+}
+
+export async function forgetCodeList(fd: FormData) {
+  const { ctx } = await guard();
+  const source = String(fd.get("source") ?? "");
+  if (!source) return;
+  await forgetCodes(source);
+  await audit(ctx.user.id, "import.codes.forget", { source });
+  revalidatePath("/import");
 }
 
 const Row = z.object({

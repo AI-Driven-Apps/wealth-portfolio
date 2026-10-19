@@ -255,6 +255,7 @@ export async function mergeInstrument(from: number, to: number) {
     await tx.update(schema.sipPlan).set({ instrumentId: to }).where(eq(schema.sipPlan.instrumentId, from));
     await tx.update(schema.fundHolding).set({ holdingInstrumentId: to }).where(eq(schema.fundHolding.holdingInstrumentId, from));
     await tx.update(schema.fundHolding).set({ fundId: to }).where(eq(schema.fundHolding.fundId, from));
+    await tx.update(schema.instrumentAlias).set({ instrumentId: to }).where(eq(schema.instrumentAlias.instrumentId, from));
     // keep the richer record's classification
     const [a] = await tx.select().from(schema.instrument).where(eq(schema.instrument.id, from));
     await tx.update(schema.instrument).set({

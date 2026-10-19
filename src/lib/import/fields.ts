@@ -4,4 +4,5 @@ export const TXN_FIELDS: { field: string; label: string }[] = [
   { field: "symbol", label: "NSE symbol" }, { field: "isin", label: "ISIN" }, { field: "amfi", label: "AMFI code" },
   { field: "units", label: "Units" }, { field: "price", label: "Price / NAV" }, { field: "amount", label: "Amount" },
   { field: "fees", label: "Charges" }, { field: "account", label: "Folio / account" }, { field: "platform", label: "Platform" },
+  { field: "status", label: "Status (only executed rows are imported)" },
 ];
