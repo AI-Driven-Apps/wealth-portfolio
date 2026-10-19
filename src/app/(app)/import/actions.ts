@@ -86,7 +86,7 @@ async function importCodeList(f: FormDataEntryValue | null, broker: string, pass
   if (!list.found) throw new Error(`Couldn't find a code column and an ISIN (or NSE symbol) column in ${f.name}.`);
   if (!list.entries.length) throw new Error(`${f.name} has the right columns but no codes under them.`);
   const r = await saveCodeList(broker, list.entries);
-  return `Saved ${r.saved.toLocaleString("en-IN")} ${broker} codes from ${f.name}${r.unresolved ? ` (${r.unresolved} NSE symbols not found yet; the NSE equity list job adds them)` : ""}. Codes you matched by hand keep your match.`;
+  return `Saved ${r.saved.toLocaleString("en-IN")} ${broker} codes from ${f.name}${r.unresolved ? ` (${r.unresolved} NSE symbols not found yet; the NSE equity list job adds them)` : ""}${r.repaired ? `, and fixed ${r.repaired} instrument${r.repaired === 1 ? "" : "s"} saved earlier under a code instead of a symbol` : ""}. Codes you matched by hand keep your match.`;
 }
 
 export async function forgetCodeList(fd: FormData) {

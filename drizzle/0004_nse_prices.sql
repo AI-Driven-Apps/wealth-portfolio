@@ -1,0 +1,1 @@
+ALTER TABLE "instrument" ADD COLUMN "price_history_from" date;

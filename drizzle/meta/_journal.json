@@ -29,6 +29,13 @@
       "when": 1792395862477,
       "tag": "0003_broker_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792409717210,
+      "tag": "0004_nse_prices",
+      "breakpoints": true
     }
   ]
 }
