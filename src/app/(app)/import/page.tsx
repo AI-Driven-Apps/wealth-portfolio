@@ -5,7 +5,8 @@ import { config } from "@/lib/config";
 import { PageHeader, Card, Notice, btnDanger, Empty } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { Importer } from "./importer";
-import { undoImport } from "./actions";
+import { undoImport, forgetCodeList } from "./actions";
+import { codeListSummary } from "@/lib/import/aliases";
 
 export const metadata = { title: "Import" };
 const SRC: Record<string, string> = { cas: "MF statement", demat_cas: "Demat statement", tradebook: "Tradebook", contract_note: "Contract note", spreadsheet: "Spreadsheet", fixed_assets: "Deposits & savings", loans: "Loans" };
@@ -16,6 +17,7 @@ export default async function ImportPage() {
   const batches = ctx.profileIds.length ? await db.select({ b: schema.importBatch, profile: schema.profile.name })
     .from(schema.importBatch).innerJoin(schema.profile, eq(schema.profile.id, schema.importBatch.profileId))
     .where(inArray(schema.importBatch.profileId, ctx.profileIds)).orderBy(desc(schema.importBatch.createdAt)).limit(30) : [];
+  const codeLists = await codeListSummary();
   const single = ctx.scope !== "household" && !!ctx.scope && ctx.canManage;
   const profileName = ctx.profiles.find((p) => p.id === ctx.scope)?.name;
 
@@ -23,6 +25,22 @@ export default async function ImportPage() {
     <>
       <PageHeader title="Import" sub={single ? <>Importing into <b>{profileName}</b>. Re-importing the same file is safe: rows already saved are skipped.</> : undefined} />
       {single ? <Importer basePath={config.basePath} features={[...ctx.features]} pdf={config.pdfImportsEnabled} /> : <Notice kind="info">{ctx.scope === "household" ? "Switch to a single profile first: imports go into one person's portfolio." : "You have view-only access to this profile."}</Notice>}
+      {codeLists.length > 0 && (
+        <Card title="Broker codes" className="mt-6" pad={false}>
+          <p className="px-4 pt-3 text-[12px] text-ink-3">Used to read tradebooks that name stocks by the broker&apos;s own code. Shared by everyone in the household.</p>
+          <div className="overflow-x-auto"><table>
+            <thead><tr><th>Broker</th><th className="r">Codes</th><th className="r">Matched by hand</th><th /></tr></thead>
+            <tbody>{codeLists.map((c) => (
+              <tr key={c.source}>
+                <td>{c.source}</td>
+                <td className="r num">{c.codes.toLocaleString("en-IN")}</td>
+                <td className="r num">{c.matched}</td>
+                <td className="r">{ctx.canManage && <form action={forgetCodeList}><input type="hidden" name="source" value={c.source} /><button className={btnDanger} title="Delete this broker's saved codes and matches; transactions already imported stay">Forget</button></form>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </Card>
+      )}
       <Card title="Import history" className="mt-6" pad={false}>
         {!batches.length ? <p className="px-4 py-6 text-ink-3">No imports yet.</p> : (
           <div className="overflow-x-auto"><table>

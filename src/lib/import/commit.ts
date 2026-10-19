@@ -4,21 +4,25 @@ import { db, schema } from "@/lib/db";
 import { config } from "@/lib/config";
 import { buildPosition, type LedgerTxn } from "@/lib/calc/fifo";
 import type { ImportPreview, ImportRow } from "./types";
+import { applyAliases, learnAlias } from "./aliases";
 
 type Ins = typeof schema.instrument.$inferSelect;
 
-/** Find the instrument a row refers to: AMFI code, then ISIN, then NSE symbol. */
+/** Find the instrument a row refers to: a known instrument id, AMFI code, ISIN, then NSE symbol. */
 async function lookup(rows: ImportRow[]) {
+  const ids = [...new Set(rows.map((r) => r.instrumentId).filter(Boolean))] as number[];
   const amfi = [...new Set(rows.map((r) => r.amfiCode).filter(Boolean))] as string[];
   const isin = [...new Set(rows.map((r) => r.isin).filter(Boolean))] as string[];
   const sym = [...new Set(rows.map((r) => r.symbol).filter(Boolean))] as string[];
   const conds = [
+    ids.length ? inArray(schema.instrument.id, ids) : undefined,
     amfi.length ? inArray(schema.instrument.amfiCode, amfi) : undefined,
     isin.length ? inArray(schema.instrument.isin, isin) : undefined,
     sym.length ? and(inArray(schema.instrument.nseSymbol, sym), inArray(schema.instrument.type, ["stock", "etf"])) : undefined,
   ].filter(Boolean);
   const found = conds.length ? await db.select().from(schema.instrument).where(or(...conds)) : [];
   return (r: ImportRow): Ins | undefined =>
+    (r.instrumentId && found.find((i) => i.id === r.instrumentId)) ||
     (r.amfiCode && found.find((i) => i.amfiCode === r.amfiCode)) ||
     (r.isin && (found.find((i) => i.isin === r.isin && i.type !== "index"))) ||
     (r.symbol && found.find((i) => i.nseSymbol === r.symbol && (i.type === "stock" || i.type === "etf"))) ||
@@ -32,6 +36,8 @@ export const identityOf = (r: Pick<ImportRow, "amfiCode" | "isin" | "symbol" | "
 
 /** Annotate rows with the instrument they map to; for demat statements keep only the gap vs the ledger. */
 export async function enrichPreview(p: ImportPreview, profileId: string): Promise<ImportPreview & { rows: PreviewRow[] }> {
+  // Broker codes (saved code lists, earlier manual matches) first: they turn a code into an ISIN.
+  ({ rows: p.rows } = await applyAliases(p.rows));
   const find = await lookup(p.rows);
   let rows: PreviewRow[] = p.rows.map((r) => {
     const ins = find(r);
@@ -57,6 +63,13 @@ export async function enrichPreview(p: ImportPreview, profileId: string): Promis
     }
     if (!kept.length && rows.length) warnings.push("Your ledger already matches this statement — nothing to add.");
     rows = kept;
+  }
+  if (p.source === "tradebook" || p.source === "spreadsheet") {
+    const codes = [...new Set(rows.filter((r) => r.isNew && r.symbol && !r.isin).map((r) => r.symbol!))];
+    if (codes.length) {
+      const broker = rows.find((r) => r.isNew && r.symbol)!.account.provider;
+      warnings.push(`${codes.length} code${codes.length > 1 ? "s" : ""} matched no NSE symbol or saved ${broker} code: ${codes.slice(0, 6).join(", ")}${codes.length > 6 ? "…" : ""}. If ${codes.length > 1 ? "these are" : "this is"} ${broker}'s own scrip code${codes.length > 1 ? "s" : ""}, add its code list (code + ISIN; CSV, Excel or PDF) with the tradebook, or match ${codes.length > 1 ? "them" : "it"} below: matches are remembered for ${broker}.`);
+    }
   }
   if (missingSymbol.size) warnings.push(`${missingSymbol.size} stock${missingSymbol.size > 1 ? "s are" : " is"} known only by ISIN (no NSE symbol), so ${missingSymbol.size > 1 ? "they" : "it"} won't get prices until the weekly "NSE equity list" job runs or you set the symbol in Admin → Data sources: ${[...missingSymbol].slice(0, 4).join(", ")}.`);
   return { ...p, rows, warnings };
@@ -121,6 +134,11 @@ export async function commitImport(p: ImportPreview, profileId: string, userId: 
       ins = await ensureInstrument(r, find);
       if (!before) newInstruments++;
       insCache.set(iKey, ins);
+      // A code matched by hand in the preview (the row still carries the code as its
+      // symbol) is remembered for this broker, so the next tradebook resolves it.
+      if (r.instrumentId && r.symbol && r.symbol !== ins.nseSymbol && p.source !== "cas" && p.source !== "demat_cas") {
+        await learnAlias(r.account.provider, r.symbol, ins);
+      }
     }
     const res = await db.insert(schema.txn).values({
       profileId, accountId: accountIds.get(aKey), instrumentId: ins.id, date: r.date, type: r.type,

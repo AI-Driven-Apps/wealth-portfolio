@@ -61,6 +61,13 @@ export function Importer({ basePath, features, pdf }: { basePath: string; featur
               <datalist id="brokers"><option value="Zerodha" /><option value="Dhan" /><option value="Groww" /><option value="Upstox" /><option value="ICICI Direct" /><option value="HDFC Securities" /><option value="Angel One" /><option value="Kotak Securities" /></datalist></div>
             <div className="flex flex-col gap-1"><label htmlFor="acct">Client / demat id</label><input id="acct" name="accountRef" placeholder="e.g. AB1234" required /></div>
           </>}
+          {kind === "tradebook" && (
+            <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-4">
+              <label htmlFor="codes">Broker code list (optional)</label>
+              <input id="codes" name="codes" type="file" accept={pdf ? ".xls,.xlsx,.csv,.pdf" : ".xls,.xlsx,.csv"} />
+              <span className="text-[12px] text-ink-3">Only if the tradebook names stocks by the broker&apos;s own code (HDFC Securities &ldquo;3MINDLEQNR&rdquo;) instead of a symbol or ISIN: the broker&apos;s list with a code column and an ISIN (or NSE symbol) column{pdf ? ", as CSV, Excel or a PDF table" : ", as CSV or Excel"}. It&apos;s saved for this broker, so you add it once.</span>
+            </div>
+          )}
           {kind === "spreadsheet" && <div className="flex flex-col gap-1"><label htmlFor="platform">Platform (if not a column)</label><input id="platform" name="platform" placeholder="e.g. Kuvera" /></div>}
         </div>
         {kind === "spreadsheet" && preview?.columns && (
@@ -137,7 +144,7 @@ function TxnPreviewPanel({ preview, basePath }: { preview: TxnPreview; basePath:
       {unknown.length > 0 && !saved && (
         <div className="border-b border-line px-4 py-3">
           <h3 className="text-[13px] font-semibold">Not recognised ({unknown.length})</h3>
-          <p className="mb-2 text-[12px] text-ink-3">These will be added as new instruments. If one is a fund or stock you already have under another name, match it so the history lands in one place.</p>
+          <p className="mb-2 text-[12px] text-ink-3">These will be added as new instruments. If one is a fund or stock you already have under another name, match it so the history lands in one place. A broker code you match is remembered for that broker.</p>
           <div className="grid gap-3 lg:grid-cols-2">
             {unknown.map(([id, u]) => (
               <div key={id} className="rounded-lg border border-line p-2.5">
@@ -157,13 +164,16 @@ function TxnPreviewPanel({ preview, basePath }: { preview: TxnPreview; basePath:
             <th>Date</th><th>Holding</th><th>Type</th><th className="r">Units</th><th className="r">Price</th><th className="r">Amount</th><th className="r">Charges</th><th>Account</th>
           </tr></thead>
           <tbody>
-            {rows.slice(0, 1000).map((r, i) => (
+            {rows.slice(0, 1000).map((r, i) => {
+              // instrumentId set by the server = resolved through a saved broker code
+              const byYou = !!r.instrumentId && !(preview.rows[i] as PreviewRow).instrumentId;
+              return (
               <tr key={r.dedupKey} className={excluded.has(i) ? "opacity-45" : undefined}>
                 <td><input type="checkbox" aria-label={`Include ${r.name} ${r.date}`} className="h-4 w-4" checked={!excluded.has(i)} onChange={() => toggle(i)} disabled={saved} /></td>
                 <td className="whitespace-nowrap">{r.date}</td>
                 <td className="max-w-[320px]">
                   <div className="truncate">{r.instrumentName ?? r.name}</div>
-                  <div className="text-[11px] text-ink-3">{r.isNew ? <span className="text-warn">new instrument · </span> : r.instrumentId ? <span className="text-accent">matched by you · </span> : null}{r.symbol ?? r.amfiCode ?? r.isin}{r.note ? ` · ${r.note}` : ""}</div>
+                  <div className="text-[11px] text-ink-3">{r.isNew ? <span className="text-warn">new instrument · </span> : byYou ? <span className="text-accent">matched by you · </span> : null}{r.symbol ?? r.amfiCode ?? r.isin}{r.note ? ` · ${r.note}` : ""}</div>
                 </td>
                 <td>{TYPE_LABEL[r.type]}</td>
                 <td className="r num">{fmt(r.units, 4)}</td>
@@ -174,7 +184,7 @@ function TxnPreviewPanel({ preview, basePath }: { preview: TxnPreview; basePath:
                 <td className="r num">{r.fees ? fmt(r.fees) : "—"}</td>
                 <td className="text-ink-2">{r.account.provider} {r.account.ref}</td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table>
         {rows.length > 1000 && <p className="px-4 py-2 text-[12px] text-ink-3">Showing the first 1,000 of {rows.length} rows; all ticked rows will be saved.</p>}

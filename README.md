@@ -33,6 +33,8 @@ This release covers **phases 1–6** of the design plan: foundation, mutual fund
   - **Deposits & savings** and **Loans** from CSV/XLSX templates (FD/RD/bonds/PPF/EPF/NPS/gold/cash/property; loans with prepayment and rate-change rows). Names already in the profile are left unchanged, new events for an existing loan are added, and Undo removes exactly what the import added.
   - **Preview**: untick rows you don't want; match an unrecognised fund or stock to one you already have, so its history lands in one place.
   - **SIP detection**: after an import (and on the SIPs page), monthly purchase runs without a plan are offered as SIPs (amount, day, yearly step-up, running or stopped), checked against the same matcher the SIP page uses.
+  - **Order status**: when a tradebook or spreadsheet has a status column, only executed rows are imported (Confirmed / Complete / Executed / Success / Traded…). Expired, rejected, cancelled, failed and pending rows, and statuses it doesn't recognise, are listed as skipped with a count per status. Order logs with an executed-quantity column (HDFC Securities' trade log) import the executed quantity instead, so an order that filled 4 of 10 before expiring adds 4; their price is the order price, and market orders (no price) are skipped, so contract notes are the exact source there.
+  - **Broker codes**: tradebooks that name stocks by the broker's own code (HDFC Securities `3MINDLEQNR`, ICICI Direct `INFTEC`) resolve through a code list saved per broker: upload the broker's list (a code column plus an ISIN or NSE symbol column; CSV, Excel, or a PDF table via the parser) with the tradebook once. Codes you match by hand in the preview are remembered for that broker too, and a later list never overrides them. Saved lists are shown, and can be forgotten, on the Import page.
   - **Stocks known only by ISIN** (demat CAS, fund disclosures) take their NSE symbol from the first tradebook that names them, and the weekly NSE equity list job fills in the rest, merging any duplicate it finds.
 - **Manual entry** for anything the imports miss.
 - **Jobs**: AMFI scheme master + daily NAV, mfapi.in NAV history (gap-only after first sync), Yahoo EOD prices, Dhan live quotes, Dhan security-id mapping, NSE equity list. All idempotent; runnable from Admin → Jobs.
@@ -124,7 +126,7 @@ export DATABASE_URL=postgres://postgres@localhost:5432/wealth_portfolio JWT_SECR
 npm run db:migrate          # + ADMIN_EMAIL / ADMIN_PASSWORD for a first admin
 npm run db:seed-sample      # optional fictional household (refuses a database with real data: use a separate one)
 npm run dev
-npm test                    # 80 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
+npm test                    # 91 unit tests: XIRR, FIFO, SIP matching, AMFI, CAS, tradebook, contract note,
                             # disclosures + look-through + overlap, FD/RD/PPF accrual, loan amortisation, what-if, drift, webhooks,
                             # spreadsheet/deposit/loan imports, SIP detection
 npm run job -- scheme-master

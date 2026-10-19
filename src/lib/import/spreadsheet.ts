@@ -4,6 +4,7 @@
 import { applyOverrides, detectColumns, readGrids, text, cell, type Aliases, type ColumnMap } from "./columns";
 import { parseLooseDate, parseNumber } from "./tabular";
 import { dedup, type ImportPreview, type ImportRow } from "./types";
+import { STATUS_ALIASES, isExecutedStatus, notExecuted, statusSummary } from "./status";
 import type { TxnType } from "@/lib/calc/fifo";
 
 export { TXN_FIELDS } from "./fields";
@@ -21,6 +22,7 @@ const ALIASES: Aliases = {
   fees: ["charges", "fees", "stampduty", "brokerage", "totalcharges"],
   account: ["folio", "folionumber", "foliono", "account", "accountno", "dematid", "clientid"],
   platform: ["platform", "broker", "amc", "rta", "source"],
+  status: STATUS_ALIASES,
 };
 
 /** "Purchase - SIP", "Redemption", "SELL", "Dividend Payout"… → ledger type. */
@@ -57,6 +59,8 @@ export function parseSpreadsheet(buf: Uint8Array, filename: string, overrides: R
       const isinRaw = text(row, cm, "isin").toUpperCase(), amfiRaw = text(row, cm, "amfi");
       if (!name && !symRaw && !isinRaw && !amfiRaw) continue; // totals / notes
       const where = `${name || symRaw || isinRaw || amfiRaw}`;
+      // Failed SIP debits, rejected / expired orders: in the export, not in the portfolio.
+      if (cm.map.status !== undefined && !isExecutedStatus(text(row, cm, "status"))) { skipped.push({ reason: notExecuted(text(row, cm, "status")), detail: `${where} ${String(cell(row, cm, "date") ?? "")}`.trim() }); continue; }
       const date = parseLooseDate(cell(row, cm, "date"));
       const typeRaw = text(row, cm, "type");
       const type = typeRaw ? normaliseType(typeRaw) : "buy";
@@ -89,6 +93,8 @@ export function parseSpreadsheet(buf: Uint8Array, filename: string, overrides: R
     }
     break;
   }
+  const st = statusSummary(skipped);
+  if (st) warnings.push(st);
   if (!cm) warnings.push("Couldn't find a header row with a date, a name/symbol/ISIN, and units or amount. Download the template to see the expected columns.");
   else if (!rows.length && !skipped.length) warnings.push("The header was found but no rows under it. Check the right sheet is first.");
   return { source: "spreadsheet", filename, rows, skipped, warnings, columns: cm ? { headers: cm.headers, map: cm.map, sheet } : null };

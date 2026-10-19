@@ -116,6 +116,20 @@ export const priceHistory = pgTable("price_history", {
   adjClose: units("adj_close"),          // split/dividend adjusted — used for returns
 }, (t) => [primaryKey({ columns: [t.instrumentId, t.date] })]);
 
+// A broker's own instrument code (HDFC Securities "3MINDLEQNR", ICICI Direct
+// "INFTEC"…) → ISIN or instrument. Scoped per broker: codes aren't unique across
+// brokers and can collide with NSE symbols. Filled from a broker's code list or
+// learned when a code is matched by hand in the import preview.
+export const instrumentAlias = pgTable("instrument_alias", {
+  source: text("source").notNull(),     // brokerKey(): "HDFC Securities" -> "hdfc"
+  code: text("code").notNull(),         // upper-case, as it appears in the tradebook
+  isin: text("isin"),
+  instrumentId: integer("instrument_id").references(() => instrument.id, { onDelete: "cascade" }),
+  name: text("name"),
+  origin: text("origin").notNull(),     // list | match
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.source, t.code] })]);
+
 // ---------- holdings ledger ----------
 
 export const account = pgTable("account", {
