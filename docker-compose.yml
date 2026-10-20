@@ -1,6 +1,14 @@
 # Wealth Portfolio on the Raspberry Pi 5.
 # Reuses the Pi's existing shared-postgres and Caddy containers over their
-# Docker network; nothing here touches NSE-Signal's containers or data.
+# Docker networks; nothing here touches NSE-Signal's containers or data.
+#
+# Networks (each service lists its own; nothing inherits a list, because a
+# service's `networks:` replaces an inherited one rather than merging with it):
+#   shared-db   external, where shared-postgres is      -> app, worker, backup
+#   shared-web  external, where Caddy is                 -> app only
+#   internal    this stack only, app <-> cas-parser      -> app, cas-parser
+# `docker compose config` prints each as `<name>: null`: that is Compose's way of
+# saying "attached, no extra options", not an error.
 #
 #   cp .env.example .env   # fill it in
 #   docker compose up -d --build
@@ -14,7 +22,6 @@ x-common: &common
   environment:
     TZ: Asia/Kolkata
     DEPLOY_TARGET: pi
-  networks: [shared, internal]
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "3" }
@@ -29,8 +36,9 @@ services:
     image: wealth-portfolio:latest
     container_name: wealth-portfolio
     depends_on: [cas-parser]
+    networks: [shared-web, shared-db, internal]
     mem_limit: 384m
-    # No host port: Caddy reaches it on the shared network as wealth-portfolio:3000.
+    # No host port: Caddy reaches it on shared-web as wealth-portfolio:3000.
     # Uncomment for LAN-only testing:
     # ports: ["3010:3000"]
 
@@ -40,6 +48,7 @@ services:
     container_name: wealth-portfolio-worker
     command: ["node", "dist/worker/index.mjs"]
     depends_on: [app]           # app runs migrations on start
+    networks: [shared-db]       # jobs need the database and the internet, not Caddy or the parser
     mem_limit: 256m
     healthcheck: { disable: true }
 
@@ -49,7 +58,7 @@ services:
     container_name: wealth-portfolio-parser
     environment:
       PARSER_SECRET: ${PARSER_SECRET:-}
-    networks: [internal]        # not on the shared network, never exposed
+    networks: [internal]        # not on any shared network, never exposed
     mem_limit: 160m
     read_only: true
     tmpfs: [/tmp]
@@ -66,11 +75,14 @@ services:
       - ./backups:/backups
       - ./deploy/backup.sh:/backup.sh:ro
     entrypoint: ["/bin/sh", "-c", "echo '30 2 * * * /bin/sh /backup.sh' > /etc/crontabs/root && /bin/sh /backup.sh && exec crond -f -l 8"]
-    networks: [shared]
+    networks: [shared-db]
     mem_limit: 64m
 
 networks:
-  shared:
+  shared-db:
     external: true
-    name: ${SHARED_NETWORK:-homelab}   # the network shared-postgres and Caddy are on
+    name: ${SHARED_DB_NETWORK:-shared-db}     # the network shared-postgres is on
+  shared-web:
+    external: true
+    name: ${SHARED_WEB_NETWORK:-shared-web}   # the network Caddy is on
   internal: {}
