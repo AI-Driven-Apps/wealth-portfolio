@@ -75,7 +75,7 @@ On upgrade, `migrate` switches each newly built module on once; members still ne
    ```sh
    docker exec -i shared-postgres psql -U postgres < deploy/init-db.sql
    ```
-2. `cp .env.example .env` and fill it in (`openssl rand -hex 32` for each secret). Set `SHARED_NETWORK` to the Docker network `shared-postgres` and Caddy are on (`docker network ls`).
+2. `cp .env.example .env` and fill it in (`openssl rand -hex 32` for each secret). Set `SHARED_DB_NETWORK` to the Docker network `shared-postgres` is on and `SHARED_WEB_NETWORK` to Caddy's (`docker network ls`; defaults `shared-db` and `shared-web`). The app joins both; the worker and backup join only the database network; the PDF parser is on a private network with the app.
 3. Add `deploy/Caddyfile.snippet` to your site block and reload Caddy.
 4. Build and start:
    ```sh
