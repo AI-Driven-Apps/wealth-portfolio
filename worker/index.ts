@@ -27,7 +27,7 @@ async function run(name: string) {
 const SCHEDULE: [string, string][] = [
   ["45 23 * * *", "scheme-master"],     // AMFI publishes NAVAll by ~11 pm IST
   ["30 0 * * *", "nav-history"],         // fill any gaps from mfapi.in
-  ["30 18 * * 1-5", "prices"],           // after NSE close + Yahoo settle
+  ["30 18 * * 1-5", "prices"],           // NSE publishes the bhavcopy by ~18:00 IST; a late file is picked up next run
   ["*/5 9-15 * * 1-5", "live-quotes"],   // Dhan LTP during market hours
   ["30 8 * * 1-5", "dhan-scrip-master"], // Dhan republishes each morning
   ["0 7 * * 0", "nse-equity-list"],      // weekly is plenty

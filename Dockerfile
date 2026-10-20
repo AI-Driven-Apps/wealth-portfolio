@@ -16,7 +16,7 @@ COPY . .
 RUN npx next build \
  && npx esbuild worker/index.ts scripts/migrate.ts scripts/seed-sample.ts scripts/run-job.ts \
       --bundle --platform=node --target=node22 --format=esm --outdir=dist --out-extension:.js=.mjs \
-      --external:@node-rs/argon2 --alias:@=./src --conditions=react-server \
+      --external:@node-rs/argon2 --external:node-cron --alias:@=./src --conditions=react-server \
       --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
 
 FROM node:22-alpine AS run
@@ -29,6 +29,9 @@ COPY --from=build --chown=app:app /app/.next/static ./.next/static
 COPY --from=build --chown=app:app /app/drizzle ./drizzle
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules/@node-rs ./node_modules/@node-rs
+# Not bundled: node-cron v4 locates its daemon.js via __dirname at load time, which
+# doesn't exist inside an ESM bundle. It has no dependencies of its own.
+COPY --from=build --chown=app:app /app/node_modules/node-cron ./node_modules/node-cron
 USER app
 EXPOSE 3000
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s CMD wget -qO- "http://127.0.0.1:3000${NEXT_PUBLIC_BASE_PATH}/api/health" >/dev/null || exit 1
