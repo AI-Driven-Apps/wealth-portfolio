@@ -36,6 +36,13 @@
       "when": 1792409717210,
       "tag": "0004_nse_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792509465195,
+      "tag": "0005_agent_reports",
+      "breakpoints": true
     }
   ]
 }

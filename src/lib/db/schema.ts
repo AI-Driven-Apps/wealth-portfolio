@@ -308,6 +308,22 @@ export const appSetting = pgTable("app_setting", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** One run of an AI agent (phase 7): what it wrote, what it cost, or why it failed. */
+export const agentReport = pgTable("agent_report", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => appUser.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),                  // market_brief
+  trigger: text("trigger").notNull(),            // schedule | manual
+  scopeLabel: text("scope_label"),
+  status: text("status").notNull().default("running"), // running | ok | error
+  body: text("body"),                            // markdown
+  error: text("error"),
+  model: text("model"),
+  usage: jsonb("usage").$type<Record<string, number>>(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [index("agent_report_user_idx").on(t.userId, t.startedAt)]);
+
 export const jobRun = pgTable("job_run", {
   id: serial("id").primaryKey(),
   job: text("job").notNull(),

@@ -12,6 +12,7 @@ import { fetchBhav, fetchIndexCloses, SERIES_RANK, type BhavRow } from "@/lib/pr
 import { getLtp, parseScripMaster, SCRIP_MASTER_URL } from "@/lib/providers/dhan";
 import { extendSampleData } from "@/lib/sample";
 import { runAlerts } from "@/lib/notify/alerts";
+import { runScheduledBriefs } from "@/lib/agents/brief";
 
 export type JobResult = Record<string, unknown>;
 type JobFn = () => Promise<JobResult>;
@@ -448,6 +449,7 @@ export const JOBS: Record<string, JobDef> = {
   "nse-equity-list": { fn: nseEquityList, label: "NSE equity list (names + ISINs)", mode: "live" },
   alerts: { fn: runAlerts, label: "Discord alerts (summary, SIPs, maturities, moves, drift)", mode: "live" },
   daily: { fn: () => runDaily(), label: "Daily run: everything above in order (Vercel Cron)", mode: "live" },
+  "ai-brief": { fn: runScheduledBriefs, label: "AI market brief (Claude API), for each user with the module", mode: "live", piOnly: true },
   "sample-extend": { fn: sampleExtend, label: "Roll sample data forward to today", mode: "sample" },
 };
 

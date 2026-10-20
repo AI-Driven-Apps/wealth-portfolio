@@ -16,6 +16,7 @@
     "vercel-build": "tsx scripts/migrate.ts && tsx scripts/prepare-data.ts && next build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@e965/xlsx": "^0.20.3",
     "@node-rs/argon2": "^2.0.2",
     "clsx": "^2.1.1",

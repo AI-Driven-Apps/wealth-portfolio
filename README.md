@@ -11,11 +11,21 @@ Household portfolio tracker for Indian investors: mutual funds, SIPs, fund of fu
 | PDF imports (CAS, contract notes) | On (`cas-parser` container) | Only with an https `PARSER_URL` + `PARSER_SECRET` | Off |
 | Live quotes | Dhan (read-only, optional) | Off (EOD prices only) | Off |
 | Discord alerts | On (worker, daily 08:00 IST) | On (in the daily run) | Off |
-| AI agents | Phase 7, Compose profile `ai` | Never | Never |
+| AI market brief | Phase 7, in the worker (`AI_AGENTS_ENABLED=1` + `ANTHROPIC_API_KEY`) | Never | Never |
 
 Two independent switches: `DEPLOY_TARGET` (pi / vercel) is *where* it runs, `DATA_MODE` (live / sample) is *whose data*. Vercel defaults to sample and the Pi to live.
 
-This release covers **phases 1–6** of the design plan: foundation, mutual funds + SIPs, equity + ETFs, look-through, fixed income/alternatives/loans, and what-if + target allocation + Discord.
+This release covers **phases 1–7** of the design plan: foundation, mutual funds + SIPs, equity + ETFs, look-through, fixed income/alternatives/loans, what-if + target allocation + Discord, and the AI market brief.
+
+### AI market brief (phase 7)
+
+A Claude agent (`src/lib/agents/brief.ts`, model `claude-opus-5-5` by default) writes a short evening brief for each user who has the module: portfolio value and today's move against the indices, notable movers, observations (concentration, drift from targets, holdings far below cost or their 52-week high, SIPs and maturities coming up) and, with `AI_WEB_SEARCH`, news on the largest holdings with source links.
+
+- **Read-only by construction.** Its tools only read: portfolio overview, holdings, price history (holdings and indices only), market indices, upcoming SIPs and maturities. Each tool is bound to the user's own profiles when the run starts. There are no write or order tools.
+- **When:** weekdays 19:15 IST from the worker (after the 18:30 prices job), and on demand from **Analysis → Market brief** (up to `AI_DAILY_LIMIT` a day). Each run is stored with its token use; Discord channels subscribed to "AI market brief" get it as soon as it's written.
+- **Privacy:** holdings (names, amounts, returns) go to the Claude API for each brief. Folio / demat numbers, PANs and account names are never sent.
+- **Cost:** roughly 30–60k input and 2–4k output tokens per brief at the default effort, plus up to 5 web searches; check the Runs table on the page for real numbers.
+- **Setup:** `AI_AGENTS_ENABLED=1` and `ANTHROPIC_API_KEY` in `.env`, restart the worker and app, then grant the module in Admin → Features (it's on globally after migrating; members need the grant).
 
 ## What's in it
 

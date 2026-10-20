@@ -10,7 +10,7 @@ export const metadata = { title: "Jobs" };
 
 const VERCEL_DAILY = "in the daily run, 00:00 IST (production only)";
 const SCHEDULE: Record<string, string> = !config.isVercel
-  ? { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST", alerts: "daily 08:00 IST", daily: "manual (the worker schedules each job itself)" }
+  ? { "scheme-master": "daily 23:45 IST", "nav-history": "daily 00:30 IST", prices: "weekdays 18:30 IST", "live-quotes": "every 5 min, 09:15–15:30 weekdays", "dhan-scrip-master": "daily 08:30 IST", "nse-equity-list": "Sundays 07:00 IST", alerts: "daily 08:00 IST", "ai-brief": "weekdays 19:15 IST", daily: "manual (the worker schedules each job itself)" }
   : config.isSample
     ? { "sample-extend": "at every build (previews don't run Vercel Cron)" }
     : { daily: "Vercel Cron, 00:00 IST", "scheme-master": VERCEL_DAILY, "nav-history": VERCEL_DAILY, prices: VERCEL_DAILY, alerts: VERCEL_DAILY, "nse-equity-list": "in the daily run on Sundays" };

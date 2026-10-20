@@ -18,6 +18,7 @@ export const ALERT_TYPES = [
   { key: "fd_maturity", label: "Maturities", hint: "FDs, RDs and bonds maturing within 7 days", feature: "other" },
   { key: "large_move", label: "Large moves", hint: "A holding moving more than the threshold in a day" },
   { key: "drift", label: "Allocation drift", hint: "An asset class outside its band (weekly reminder)", feature: "drift" },
+  { key: "ai_brief", label: "AI market brief", hint: "Claude's evening brief on your holdings, sent when it's written (weekdays ~19:15 IST)", feature: "ai_agents" },
 ] as const;
 export type AlertType = (typeof ALERT_TYPES)[number]["key"];
 
@@ -115,7 +116,8 @@ async function buildItems(s: Scope, label: string, wanted: Set<string>, today: s
   return { items, summary };
 }
 
-const TITLES: Record<Exclude<AlertType, "daily_summary">, string> = {
+// ai_brief is sent by the agent itself when it finishes (lib/agents/brief.ts), not by this job.
+const TITLES: Record<Exclude<AlertType, "daily_summary" | "ai_brief">, string> = {
   sip_due: "SIPs due", fd_maturity: "Maturing soon", large_move: "Large moves", drift: "Allocation drift",
 };
 
