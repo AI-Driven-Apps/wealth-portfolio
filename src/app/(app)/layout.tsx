@@ -20,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(f.has("lookthrough") ? [{ href: "/lookthrough", label: "Look-through", group: "Analysis" }] : []),
     ...(f.has("drift") ? [{ href: "/allocation", label: "Target allocation", group: "Analysis" }] : []),
     ...(f.has("what_if") ? [{ href: "/what-if", label: "What-if", group: "Analysis" }] : []),
+    ...(f.has("ai_agents") && !config.isVercel ? [{ href: "/insights", label: "Market brief", group: "Analysis" }] : []),
     { href: "/transactions", label: "Transactions", group: "Data" },
     ...(f.has("imports") && config.importsEnabled ? [{ href: "/import", label: "Import", group: "Data" }] : []),
     ...(ctx.user.role === "admin" ? [

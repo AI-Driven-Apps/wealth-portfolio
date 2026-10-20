@@ -36,6 +36,12 @@ export const config = {
   pdfImportsEnabled: !isSample && bool(process.env.IMPORTS_ENABLED, true)
     && (target === "pi" ? !!parserUrl : /^https:\/\//.test(parserUrl) && (process.env.PARSER_SECRET ?? "").length >= 16),
   aiAgentsEnabled: target === "vercel" ? false : bool(process.env.AI_AGENTS_ENABLED, false),
+  // Phase 7 agents call the Claude API (ANTHROPIC_API_KEY): holdings leave the Pi for that call.
+  aiModel: process.env.AI_MODEL || "claude-opus-5-5",
+  aiEffort: (["low", "medium", "high", "xhigh", "max"].includes(process.env.AI_EFFORT ?? "") ? process.env.AI_EFFORT : "medium") as "low" | "medium" | "high" | "xhigh" | "max",
+  aiWebSearch: bool(process.env.AI_WEB_SEARCH, true),
+  /** Manual "generate now" runs per user per day; the scheduled run doesn't count. */
+  aiDailyLimit: Number(process.env.AI_DAILY_LIMIT ?? 3),
   parserUrl,
   dhanClientId: (process.env.DHAN_CLIENT_ID ?? "").trim().replace(/^['"]|['"]$/g, ""),
   backfillDays: Number(process.env.BACKFILL_DAYS ?? 730),

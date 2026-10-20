@@ -13,7 +13,7 @@ export const FEATURES = [
   { key: "what_if", label: "What-if comparison", phase: 6, built: true },
   { key: "drift", label: "Target allocation & drift alerts", phase: 6, built: true },
   { key: "discord_user", label: "Personal Discord alerts", phase: 6, built: true },
-  { key: "ai_agents", label: "AI agents (Pi only)", phase: 7, built: false },
+  { key: "ai_agents", label: "AI market brief (Pi only, uses the Claude API)", phase: 7, built: true },
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number]["key"];
