@@ -43,6 +43,25 @@ describe("broker code lists", () => {
     const r = parseCodeList([["Scrip Name", "Stock Code", "NSE Symbol"], ["Infosys Ltd", "INFTEC", "INFY"]]);
     expect(r.entries).toEqual([{ code: "INFTEC", isin: null, nseSymbol: "INFY", name: "Infosys Ltd" }]);
   });
+  it("reads the approved-securities layout: InternalCode is the code, Symbol is the NSE symbol", () => {
+    const grid = [
+      [null, null, "Approved list of securities accepted as collateral for the Month of February, 2020", null, null, null],
+      ["Sr No", "Symbol", "ISIN", "Security Name", "InternalCode", "Coll Valuation %"],
+      ["1", "ADANIPORTS", "INE742F01042", "Adani Ports and Special Economic Zone Limited", "ADAPOREQNR", "75"],
+      ["4", "BAJAJ-AUTO", "INE917I01010", "Bajaj Auto Limited", "BAJLTDEQNR", "75"],
+      ["31", "M&M", "INE101A01026", "Mahindra & Mahindra Limited", "MAHMAHEQNR", "75"],
+    ];
+    const r = parseCodeList(grid);
+    expect(r.entries).toEqual([
+      { code: "ADAPOREQNR", isin: "INE742F01042", nseSymbol: "ADANIPORTS", name: "Adani Ports and Special Economic Zone Limited" },
+      { code: "BAJLTDEQNR", isin: "INE917I01010", nseSymbol: "BAJAJ-AUTO", name: "Bajaj Auto Limited" },
+      { code: "MAHMAHEQNR", isin: "INE101A01026", nseSymbol: "M&M", name: "Mahindra & Mahindra Limited" },
+    ]);
+  });
+  it("uses Symbol as the code only when the list has no code column of its own", () => {
+    const r = parseCodeList([["Symbol", "ISIN"], ["INFY", "INE009A01021"]]);
+    expect(r.entries).toEqual([{ code: "INFY", isin: "INE009A01021", nseSymbol: null, name: null }]);
+  });
   it("rejects a file without the columns", () => {
     expect(parseCodeList([["Date", "Amount"], ["2025-01-01", "5"]]).found).toBe(false);
   });

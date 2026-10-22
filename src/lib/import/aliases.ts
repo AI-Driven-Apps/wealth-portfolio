@@ -10,7 +10,8 @@ type Alias = typeof schema.instrumentAlias.$inferSelect;
 /** Saves a broker's code list. A code matched by hand keeps that match. */
 export async function saveCodeList(broker: string, entries: CodeEntry[]) {
   const source = brokerKey(broker);
-  // Code -> NSE symbol lists resolve through instruments we already have.
+  // An ISIN is enough on its own; a code with only an NSE symbol resolves through
+  // instruments we already have (the NSE equity list job loads them all).
   const syms = [...new Set(entries.filter((e) => !e.isin && e.nseSymbol).map((e) => e.nseSymbol!))];
   const bySym = new Map<string, { id: number; isin: string | null }>();
   for (let i = 0; i < syms.length; i += 1000) {
