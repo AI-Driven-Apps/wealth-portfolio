@@ -65,7 +65,7 @@ export function Importer({ basePath, features, pdf }: { basePath: string; featur
             <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-4">
               <label htmlFor="codes">Broker code list (optional)</label>
               <input id="codes" name="codes" type="file" accept={pdf ? ".xls,.xlsx,.csv,.pdf" : ".xls,.xlsx,.csv"} />
-              <span className="text-[12px] text-ink-3">Only if the tradebook names stocks by the broker&apos;s own code (HDFC Securities &ldquo;3MINDLEQNR&rdquo;) instead of a symbol or ISIN: the broker&apos;s list with a code column and an ISIN (or NSE symbol) column{pdf ? ", as CSV, Excel or a PDF table" : ", as CSV or Excel"}. It&apos;s saved for this broker, so you add it once.</span>
+              <span className="text-[12px] text-ink-3">Only if the tradebook names stocks by the broker&apos;s own code (HDFC Securities &ldquo;3MINDLEQNR&rdquo;) instead of a symbol or ISIN: the broker&apos;s list with a code column (InternalCode, Scrip_ID…) and an ISIN or NSE symbol column, such as HDFC&apos;s monthly approved-securities list{pdf ? ", as CSV, Excel or a PDF table" : ", as CSV or Excel"}. It&apos;s saved for this broker, so you add it once.</span>
             </div>
           )}
           {kind === "spreadsheet" && <div className="flex flex-col gap-1"><label htmlFor="platform">Platform (if not a column)</label><input id="platform" name="platform" placeholder="e.g. Kuvera" /></div>}

@@ -9,7 +9,7 @@ import { STATUS_ALIASES, isExecutedStatus, notExecuted, statusSummary } from "./
 // Listed in order of preference: when a file has several matching columns, the
 // earlier alias wins (an exchange symbol or broker code over a company name).
 const ALIASES: Record<string, string[]> = {
-  symbol: ["symbol", "tradingsymbol", "scripid", "scripcode", "scrip", "scripsymbol", "stock", "scripname", "stockname", "securityname", "security", "instrument", "name", "companyname"],
+  symbol: ["symbol", "tradingsymbol", "internalcode", "scripid", "scripcode", "scrip", "scripsymbol", "stock", "scripname", "stockname", "securityname", "security", "instrument", "name", "companyname"],
   name: ["securityname", "stockname", "companyname", "scripname", "name", "security"],
   status: STATUS_ALIASES,
   isin: ["isin", "isincode"],
