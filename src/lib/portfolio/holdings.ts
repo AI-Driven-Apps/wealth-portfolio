@@ -5,6 +5,7 @@ import { buildPosition, type LedgerTxn, type Position } from "@/lib/calc/fifo";
 import { xirr } from "@/lib/calc/xirr";
 import { todayIST } from "@/lib/calc/dates";
 import type { Instrument } from "@/lib/db/schema";
+import { INDEX_MEMBERS_KEY, type IndexMembers } from "./categories";
 
 export type AssetType = "stock" | "mf" | "etf";
 
@@ -200,6 +201,21 @@ export function fiftyTwoWeekSignal(price: number | null, w: FiftyTwoWeek | null)
   if (price <= w.low * (1 + NEAR_EDGE)) return { signal: "buy", label: "Near 52W low" };
   if (price >= w.high * (1 - NEAR_EDGE)) return { signal: "sell", label: "Near 52W high" };
   return { signal: "hold", label: "Mid-range" };
+}
+
+/** Where the buy and sell zones of fiftyTwoWeekSignal start and end, as range positions (0 = low, 1 = high). */
+export function signalZones(w: FiftyTwoWeek): { buyTo: number; sellFrom: number } {
+  const span = w.high - w.low;
+  if (!(span > 0)) return { buyTo: 0, sellFrom: 1 };
+  const buyTo = Math.min(1, (w.low * NEAR_EDGE) / span);
+  return { buyTo, sellFrom: Math.max(buyTo, Math.min(1, (w.high * (1 - NEAR_EDGE) - w.low) / span)) };
+}
+
+/** NIFTY 50 and F&O stock lists saved by the index-members job; empty until it first runs. */
+export async function getIndexMembers(): Promise<IndexMembers> {
+  const [row] = await db.select().from(schema.appSetting).where(eq(schema.appSetting.key, INDEX_MEMBERS_KEY));
+  const v = row?.value as Partial<IndexMembers> | undefined;
+  return { nifty50: v?.nifty50 ?? [], fno: v?.fno ?? [], asOf: v?.asOf ?? null };
 }
 
 /** 52-week high/low close per instrument, from the trailing 365 days of stored history. */
