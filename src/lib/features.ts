@@ -14,6 +14,7 @@ export const FEATURES = [
   { key: "drift", label: "Target allocation & drift alerts", phase: 6, built: true },
   { key: "discord_user", label: "Personal Discord alerts", phase: 6, built: true },
   { key: "ai_agents", label: "AI market brief (Pi only, uses the Claude API)", phase: 7, built: true },
+  { key: "fifty_two_week", label: "52-week high/low", phase: 8, built: true },
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number]["key"];
