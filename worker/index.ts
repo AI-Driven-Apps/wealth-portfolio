@@ -31,6 +31,7 @@ const SCHEDULE: [string, string][] = [
   ["*/5 9-15 * * 1-5", "live-quotes"],   // Dhan LTP during market hours
   ["30 8 * * 1-5", "dhan-scrip-master"], // Dhan republishes each morning
   ["0 7 * * 0", "nse-equity-list"],      // weekly is plenty
+  ["10 7 * * 0", "index-members"],       // NIFTY 50 / F&O lists for the 52-week categories
   ["0 8 * * *", "alerts"],               // after last night's NAVs; SIP reminders land in the morning
   ["15 19 * * 1-5", "ai-brief"],         // after the 18:30 prices run; skipped unless AI_AGENTS_ENABLED + ANTHROPIC_API_KEY
 ];
@@ -47,6 +48,8 @@ async function main() {
     await run("scheme-master");
     await run("nse-equity-list");
   }
+  const [im] = await db.execute(sql`select 1 from app_setting where key = 'index_members'`);
+  if (!im) await run("index-members");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
