@@ -152,6 +152,57 @@ export async function txnsFor(profileIds: string[], instrumentId: number) {
     .orderBy(desc(schema.txn.date));
 }
 
+export interface FiftyTwoWeek {
+  high: number; highDate: string; low: number; lowDate: string; asOf: string;
+}
+
+/** 0 = at the 52-week low, 1 = at the 52-week high. Null when there's no range to place it in. */
+export function rangePosition(price: number | null, w: FiftyTwoWeek | null): number | null {
+  if (price == null || !w || w.high <= w.low) return null;
+  return Math.min(1, Math.max(0, (price - w.low) / (w.high - w.low)));
+}
+
+export type Signal = "buy" | "sell" | "hold";
+
+/** Within this fraction of the 52-week low/high counts as "near" it. */
+const NEAR_EDGE = 0.05;
+
+/** A simple mean-reversion read: near the low reads as a buy dip, near the high as a take-profit sell. */
+export function fiftyTwoWeekSignal(price: number | null, w: FiftyTwoWeek | null): { signal: Signal; label: string } {
+  if (price == null || !w || w.high <= w.low) return { signal: "hold", label: "Not enough history" };
+  if (price <= w.low * (1 + NEAR_EDGE)) return { signal: "buy", label: "Near 52W low" };
+  if (price >= w.high * (1 - NEAR_EDGE)) return { signal: "sell", label: "Near 52W high" };
+  return { signal: "hold", label: "Mid-range" };
+}
+
+/** 52-week high/low close per instrument, from the trailing 365 days of stored history. */
+export async function fiftyTwoWeekRange(ids: number[]): Promise<Map<number, FiftyTwoWeek>> {
+  const out = new Map<number, FiftyTwoWeek>();
+  if (!ids.length) return out;
+  const list = sql.raw(`(${ids.map(Number).join(",")})`);
+  const rows = await db.execute<{ id: number; d: string; hi: string; hid: string; lo: string; lod: string }>(sql`
+    with last as (
+      select instrument_id, max(date) d from price_history where instrument_id in ${list} group by instrument_id
+    )
+    select l.instrument_id as id, l.d::text as d, hi.close as hi, hi.date::text as hid, lo.close as lo, lo.date::text as lod
+    from last l
+    left join lateral (
+      select close, date from price_history p
+      where p.instrument_id = l.instrument_id and p.date > l.d - interval '365 days' and p.date <= l.d
+      order by close desc, date desc limit 1
+    ) hi on true
+    left join lateral (
+      select close, date from price_history p
+      where p.instrument_id = l.instrument_id and p.date > l.d - interval '365 days' and p.date <= l.d
+      order by close asc, date desc limit 1
+    ) lo on true`);
+  for (const r of rows) {
+    if (r.hi == null || r.lo == null) continue;
+    out.set(Number(r.id), { high: Number(r.hi), highDate: r.hid, low: Number(r.lo), lowDate: r.lod, asOf: r.d });
+  }
+  return out;
+}
+
 export interface Trailing { r1: number | null; r3: number | null; r5: number | null; asOf: string | null }
 
 /**

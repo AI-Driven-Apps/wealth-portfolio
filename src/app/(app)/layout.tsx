@@ -18,6 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(f.has("other") ? [{ href: "/fixed", label: "Fixed income & alts", group: "Holdings" }] : []),
     ...(f.has("loans") ? [{ href: "/loans", label: "Loans & EMIs", group: "Holdings" }] : []),
     ...(f.has("lookthrough") ? [{ href: "/lookthrough", label: "Look-through", group: "Analysis" }] : []),
+    ...(f.has("fifty_two_week") ? [{ href: "/52-week", label: "52-week range", group: "Analysis" }] : []),
     ...(f.has("drift") ? [{ href: "/allocation", label: "Target allocation", group: "Analysis" }] : []),
     ...(f.has("what_if") ? [{ href: "/what-if", label: "What-if", group: "Analysis" }] : []),
     ...(f.has("ai_agents") && !config.isVercel ? [{ href: "/insights", label: "Market brief", group: "Analysis" }] : []),
