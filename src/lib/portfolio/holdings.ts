@@ -152,6 +152,33 @@ export async function txnsFor(profileIds: string[], instrumentId: number) {
     .orderBy(desc(schema.txn.date));
 }
 
+export interface UniverseEntry {
+  instrument: Instrument;
+  held: boolean;
+  price: number | null;
+  priceDate: string | null;
+}
+
+/**
+ * Every active instrument of the given types the system tracks, not just what's
+ * in the ledger — flagged with whether these profiles currently hold it.
+ */
+export async function getUniverse(profileIds: string[], types: AssetType[]): Promise<UniverseEntry[]> {
+  const [instruments, holdings] = await Promise.all([
+    db.select().from(schema.instrument).where(and(inArray(schema.instrument.type, types), eq(schema.instrument.active, true))),
+    getHoldings(profileIds, types),
+  ]);
+  const heldIds = new Set(holdings.map((h) => h.instrument.id));
+  return instruments
+    .map((ins) => ({
+      instrument: ins,
+      held: heldIds.has(ins.id),
+      price: ins.lastPrice != null ? Number(ins.lastPrice) : null,
+      priceDate: ins.lastPriceDate ?? null,
+    }))
+    .sort((a, b) => Number(b.held) - Number(a.held) || a.instrument.name.localeCompare(b.instrument.name));
+}
+
 export interface FiftyTwoWeek {
   high: number; highDate: string; low: number; lowDate: string; asOf: string;
 }
