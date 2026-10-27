@@ -1,5 +1,6 @@
 import { requireCtx } from "@/lib/auth/session";
 import { config } from "@/lib/config";
+import { fmtDateTime } from "@/lib/format";
 import { Nav, type NavItem } from "./nav";
 import { ScopeSwitcher } from "./scope-switcher";
 
@@ -51,6 +52,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="hidden border-t border-line px-4 py-3 md:block">
           <a href={`${config.basePath}/account`} className="block truncate text-[13px] font-medium">{ctx.user.name}</a>
           <div className="truncate text-[12px] text-ink-3">{ctx.user.email}</div>
+          <div className="mt-1 truncate text-[11px] text-ink-3" title={config.buildTime}>
+            Build {config.buildSha || "unknown"} · {fmtDateTime(config.buildTime)}
+          </div>
           <form action={`${config.basePath}/api/auth/logout`} method="post" className="mt-2">
             <button className="text-[12px] text-ink-2 underline-offset-2 hover:underline">Sign out</button>
           </form>

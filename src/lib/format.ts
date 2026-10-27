@@ -38,6 +38,12 @@ export function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+/** Full timestamp in IST, e.g. "27 Oct 2026, 2:32 pm". */
+export function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+}
+
 export const tone = (v: number | null | undefined) => (v == null || v === 0 ? "text-ink-2" : v > 0 ? "text-gain" : "text-loss");
 
 /** "Demo Midcap Fund - Direct Plan - Growth" → "Demo Midcap Fund", for tight tables. */
