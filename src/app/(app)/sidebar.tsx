@@ -17,10 +17,12 @@ export function Sidebar({ mark, top, nav, bottom }: {
     <div className="relative md:shrink-0">
       <aside className={clsx("border-b border-line bg-panel transition-[width] md:sticky md:top-0 md:flex md:h-screen md:flex-col md:border-r md:border-b-0", collapsed ? "md:w-16" : "md:w-56")}>
         {collapsed ? (
-          <div className="hidden md:flex md:flex-1 md:flex-col md:items-center md:gap-3 md:overflow-y-auto md:pt-4">
-            {mark}
-            {cloneElement(nav, { collapsed: true })}
-          </div>
+          <>
+            <div className="hidden md:flex md:items-center md:justify-center md:pt-4 md:pb-3">{mark}</div>
+            <div className="hidden md:flex md:flex-1 md:flex-col md:items-center md:gap-1 md:overflow-y-auto">
+              {cloneElement(nav, { collapsed: true })}
+            </div>
+          </>
         ) : (
           <>
             {top}
