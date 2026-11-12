@@ -42,35 +42,40 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen md:flex">
-      <Sidebar mark={logoMark}>
-        <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-          {logoMark}
-          <span className="font-semibold">Wealth Portfolio</span>
-        </div>
-        <div className="px-3 pb-3">
-          <ScopeSwitcher scope={ctx.scope} profiles={ctx.profiles} household={ctx.user.role === "admin" && ctx.profiles.length > 1} />
-        </div>
-        <div className="px-2 pb-3 md:flex-1 md:overflow-y-auto">
-          <Nav items={items} />
-        </div>
-        <div className="hidden border-t border-line px-3 py-3 md:block">
-          <div className="flex items-center gap-2.5 rounded-lg bg-panel-2 px-2.5 py-2">
-            <a href={`${config.basePath}/account`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-[12px] font-semibold text-accent-ink">{initials}</a>
-            <a href={`${config.basePath}/account`} className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{ctx.user.name}</div>
-              <div className="truncate text-[11px] text-ink-3 capitalize">{ctx.user.role}</div>
-            </a>
-            <form action={`${config.basePath}/api/auth/logout`} method="post">
-              <button aria-label="Sign out" title="Sign out" className="flex h-7 w-7 items-center justify-center rounded-md text-ink-3 hover:bg-panel hover:text-ink">
-                <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden><path d="M6 2H3.5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1H6M10.5 11l3-3-3-3M13.3 8H6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-            </form>
+      <Sidebar
+        mark={logoMark}
+        nav={<Nav items={items} />}
+        top={
+          <>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-3">
+              {logoMark}
+              <span className="font-semibold">Wealth Portfolio</span>
+            </div>
+            <div className="px-3 pb-3">
+              <ScopeSwitcher scope={ctx.scope} profiles={ctx.profiles} household={ctx.user.role === "admin" && ctx.profiles.length > 1} />
+            </div>
+          </>
+        }
+        bottom={
+          <div className="hidden border-t border-line px-3 py-3 md:block">
+            <div className="flex items-center gap-2.5 rounded-lg bg-panel-2 px-2.5 py-2">
+              <a href={`${config.basePath}/account`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-[12px] font-semibold text-accent-ink">{initials}</a>
+              <a href={`${config.basePath}/account`} className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium">{ctx.user.name}</div>
+                <div className="truncate text-[11px] text-ink-3 capitalize">{ctx.user.role}</div>
+              </a>
+              <form action={`${config.basePath}/api/auth/logout`} method="post">
+                <button aria-label="Sign out" title="Sign out" className="flex h-7 w-7 items-center justify-center rounded-md text-ink-3 hover:bg-panel hover:text-ink">
+                  <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden><path d="M6 2H3.5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1H6M10.5 11l3-3-3-3M13.3 8H6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </form>
+            </div>
+            <div className="mt-2 truncate px-0.5 text-[11px] text-ink-3" title={config.buildTime}>
+              Build {config.buildSha || "unknown"} · {fmtDateTime(config.buildTime)}
+            </div>
           </div>
-          <div className="mt-2 truncate px-0.5 text-[11px] text-ink-3" title={config.buildTime}>
-            Build {config.buildSha || "unknown"} · {fmtDateTime(config.buildTime)}
-          </div>
-        </div>
-      </Sidebar>
+        }
+      />
       <main className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-7">
         {config.isSample && (
           <div className="mb-4 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">Sample data: every fund, stock and price here is fictional.</div>

@@ -3,10 +3,40 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
+import {
+  LayoutDashboard, PiggyBank, Repeat, Layers, TrendingUp, BarChart3, Landmark, HandCoins,
+  ScanSearch, CalendarRange, PieChart, FlaskConical, Sparkles, Receipt, Upload, Users,
+  ToggleLeft, Database, FileText, ListChecks, Bell, Settings, Circle, type LucideIcon,
+} from "lucide-react";
 
 export interface NavItem { href: string; label: string; group?: string }
 
-export function Nav({ items }: { items: NavItem[] }) {
+const ICONS: Record<string, LucideIcon> = {
+  "/": LayoutDashboard,
+  "/mf": PiggyBank,
+  "/sip": Repeat,
+  "/fof": Layers,
+  "/equity": TrendingUp,
+  "/etf": BarChart3,
+  "/fixed": Landmark,
+  "/loans": HandCoins,
+  "/lookthrough": ScanSearch,
+  "/52-week": CalendarRange,
+  "/allocation": PieChart,
+  "/what-if": FlaskConical,
+  "/insights": Sparkles,
+  "/transactions": Receipt,
+  "/import": Upload,
+  "/admin": Users,
+  "/admin/features": ToggleLeft,
+  "/admin/data": Database,
+  "/admin/disclosures": FileText,
+  "/admin/jobs": ListChecks,
+  "/alerts": Bell,
+  "/account": Settings,
+};
+
+export function Nav({ items, collapsed }: { items: NavItem[]; collapsed?: boolean }) {
   const path = usePathname();
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const toggleGroup = (g: string) => setClosed((s) => {
@@ -20,11 +50,12 @@ export function Nav({ items }: { items: NavItem[] }) {
   const active = (href: string) => href === best;
   let lastGroup: string | undefined;
   return (
-    <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible" aria-label="Main">
+    <nav className={clsx("flex gap-1 overflow-x-auto md:flex-col md:overflow-visible", collapsed && "md:items-center")} aria-label="Main">
       {items.map((it) => {
-        const header = it.group && it.group !== lastGroup ? it.group : null;
+        const header = !collapsed && it.group && it.group !== lastGroup ? it.group : null;
         lastGroup = it.group;
-        const open = !it.group || !closed.has(it.group);
+        const open = collapsed || !it.group || !closed.has(it.group);
+        const Icon = ICONS[it.href] ?? Circle;
         return (
           <div key={it.href} className="contents">
             {header && (
@@ -38,9 +69,12 @@ export function Nav({ items }: { items: NavItem[] }) {
             )}
             {open && (
               <Link href={it.href} aria-current={active(it.href) ? "page" : undefined}
-                className={clsx("shrink-0 rounded-lg px-2.5 py-1.5 text-[13px] whitespace-nowrap",
+                title={collapsed ? it.label : undefined} aria-label={collapsed ? it.label : undefined}
+                className={clsx("flex shrink-0 items-center gap-2 rounded-lg text-[13px] whitespace-nowrap",
+                  collapsed ? "h-9 w-9 justify-center" : "px-2.5 py-1.5",
                   active(it.href) ? "bg-accent-soft font-semibold text-accent" : "text-ink-2 hover:bg-panel-2 hover:text-ink")}>
-                {it.label}
+                <Icon size={16} strokeWidth={2} aria-hidden className="shrink-0" />
+                {!collapsed && it.label}
               </Link>
             )}
           </div>
