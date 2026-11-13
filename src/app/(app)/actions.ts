@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { config } from "@/lib/config";
 import { requireCtx, revokeAllSessions, logout } from "@/lib/auth/session";
-import { PROFILE_COOKIE } from "@/lib/auth/tokens";
+import { PROFILE_COOKIE, THEME_COOKIE } from "@/lib/auth/tokens";
 import { hashPassword, passwordProblem, verifyPassword } from "@/lib/auth/password";
 import { audit } from "@/lib/audit";
 
@@ -15,6 +15,13 @@ export async function setScope(fd: FormData) {
   const want = String(fd.get("scope") ?? "");
   const ok = (want === "household" && ctx.user.role === "admin") || ctx.profiles.some((p) => p.id === want);
   if (ok) (await cookies()).set(PROFILE_COOKIE, want, { httpOnly: true, sameSite: "lax", secure: config.secureCookies, path: config.basePath || "/", maxAge: 365 * 86400 });
+  revalidatePath("/", "layout");
+}
+
+export async function setTheme(fd: FormData) {
+  await requireCtx();
+  const want = String(fd.get("theme") ?? "");
+  (await cookies()).set(THEME_COOKIE, want === "mono" ? "mono" : "", { httpOnly: true, sameSite: "lax", secure: config.secureCookies, path: config.basePath || "/", maxAge: 365 * 86400 });
   revalidatePath("/", "layout");
 }
 

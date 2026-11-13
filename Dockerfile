@@ -10,7 +10,9 @@ RUN npm ci --no-audit --no-fund
 FROM node:22-alpine AS build
 WORKDIR /app
 ARG NEXT_PUBLIC_BASE_PATH=""
-ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH NEXT_TELEMETRY_DISABLED=1 DEPLOY_TARGET=pi
+# .git is not in the build context; pass the commit for the sidebar build stamp.
+ARG GIT_SHA=""
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH NEXT_TELEMETRY_DISABLED=1 DEPLOY_TARGET=pi GIT_SHA=$GIT_SHA
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx next build \

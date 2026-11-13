@@ -89,9 +89,10 @@ On upgrade, `migrate` switches each newly built module on once; members still ne
 3. Add `deploy/Caddyfile.snippet` to your site block and reload Caddy.
 4. Build and start:
    ```sh
-   docker compose up -d --build
+   GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
    docker compose logs -f app worker
    ```
+   The sidebar (under your name) shows the commit and build time, so you can tell which build is running. Without `GIT_SHA` it shows "Build unknown" with the time only.
    The app runs migrations on start and creates the first admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD`. On first boot the worker loads AMFI's scheme list and NSE's equity list.
 5. Open `https://home.tinyserverlab.in/wealth`, sign in, change the temporary password, then **Import**.
 6. Optional: Admin → Data sources → paste a Dhan access token (24 h) and upload AMFI's market-cap xlsx.

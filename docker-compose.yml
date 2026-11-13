@@ -33,6 +33,7 @@ services:
       context: .
       args:
         NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-/wealth}
+        GIT_SHA: ${GIT_SHA:-}        # GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
     image: wealth-portfolio:latest
     container_name: wealth-portfolio
     depends_on: [cas-parser]

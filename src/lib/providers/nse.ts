@@ -94,3 +94,35 @@ export async function fetchIndexCloses(date: string): Promise<Map<string, number
 
 /** Equity-like series, best first: one ISIN can trade in several (EQ and BE, say). */
 export const SERIES_RANK = ["EQ", "BE", "BZ", "SM", "ST", "IV", "RR", "GB", "GS"];
+
+// Index membership for the 52-week page's categories: static files, refreshed weekly.
+export const NIFTY50_URL = "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv";
+export const FNO_LOTS_URL = "https://nsearchives.nseindia.com/content/fo/fo_mktlots.csv";
+
+/** Symbols from an index constituent list (Company Name, Industry, Symbol, Series, ISIN Code). */
+export function parseIndexList(csv: string): string[] {
+  const [head, ...rows] = parseCsv(csv);
+  const sym = head?.findIndex((h) => h.trim().toUpperCase() === "SYMBOL") ?? -1;
+  if (sym < 0) throw new Error("unrecognised index constituent list");
+  return rows.map((r) => (r[sym] ?? "").trim().toUpperCase()).filter(Boolean);
+}
+
+/** Stocks with F&O contracts: the rows after the "Derivatives on Individual Securities" divider (index rows come first). */
+export function parseFnoLots(csv: string): string[] {
+  const out: string[] = [];
+  let stocks = false;
+  for (const r of parseCsv(csv)) {
+    if (/derivatives on individual securities/i.test(r[0] ?? "")) { stocks = true; continue; }
+    const s = (r[1] ?? "").trim().toUpperCase();
+    if (stocks && s && s !== "SYMBOL") out.push(s);
+  }
+  if (!out.length) throw new Error("unrecognised F&O market lot file");
+  return out;
+}
+
+export async function fetchIndexMembers(): Promise<{ nifty50: string[]; fno: string[] }> {
+  const [n, f] = await Promise.all([get(NIFTY50_URL), get(FNO_LOTS_URL)]);
+  if (!n || !f) throw new Error(`NSE list missing: ${!n ? "NIFTY 50" : "F&O lots"}`);
+  const text = (b: Uint8Array) => new TextDecoder().decode(b);
+  return { nifty50: parseIndexList(text(n)), fno: parseFnoLots(text(f)) };
+}

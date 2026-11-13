@@ -5,6 +5,7 @@ import { buildPosition, type LedgerTxn, type Position } from "@/lib/calc/fifo";
 import { xirr } from "@/lib/calc/xirr";
 import { todayIST } from "@/lib/calc/dates";
 import type { Instrument } from "@/lib/db/schema";
+import { INDEX_MEMBERS_KEY, type IndexMembers } from "./categories";
 
 export type AssetType = "stock" | "mf" | "etf";
 
@@ -150,6 +151,99 @@ export async function txnsFor(profileIds: string[], instrumentId: number) {
     .leftJoin(schema.account, eq(schema.account.id, schema.txn.accountId))
     .where(and(inArray(schema.txn.profileId, profileIds), eq(schema.txn.instrumentId, instrumentId)))
     .orderBy(desc(schema.txn.date));
+}
+
+export interface UniverseEntry {
+  instrument: Instrument;
+  held: boolean;
+  price: number | null;
+  priceDate: string | null;
+}
+
+/**
+ * Every active instrument of the given types the system tracks, not just what's
+ * in the ledger — flagged with whether these profiles currently hold it.
+ */
+export async function getUniverse(profileIds: string[], types: AssetType[]): Promise<UniverseEntry[]> {
+  const [instruments, holdings] = await Promise.all([
+    db.select().from(schema.instrument).where(and(inArray(schema.instrument.type, types), eq(schema.instrument.active, true))),
+    getHoldings(profileIds, types),
+  ]);
+  const heldIds = new Set(holdings.map((h) => h.instrument.id));
+  return instruments
+    .map((ins) => ({
+      instrument: ins,
+      held: heldIds.has(ins.id),
+      price: ins.lastPrice != null ? Number(ins.lastPrice) : null,
+      priceDate: ins.lastPriceDate ?? null,
+    }))
+    .sort((a, b) => Number(b.held) - Number(a.held) || a.instrument.name.localeCompare(b.instrument.name));
+}
+
+export interface FiftyTwoWeek {
+  high: number; highDate: string; low: number; lowDate: string; asOf: string;
+}
+
+/** 0 = at the 52-week low, 1 = at the 52-week high. Null when there's no range to place it in. */
+export function rangePosition(price: number | null, w: FiftyTwoWeek | null): number | null {
+  if (price == null || !w || w.high <= w.low) return null;
+  return Math.min(1, Math.max(0, (price - w.low) / (w.high - w.low)));
+}
+
+export type Signal = "buy" | "sell" | "hold";
+
+/** Within this fraction of the 52-week low/high counts as "near" it. */
+const NEAR_EDGE = 0.05;
+
+/** A simple mean-reversion read: near the low reads as a buy dip, near the high as a take-profit sell. */
+export function fiftyTwoWeekSignal(price: number | null, w: FiftyTwoWeek | null): { signal: Signal; label: string } {
+  if (price == null || !w || w.high <= w.low) return { signal: "hold", label: "Not enough history" };
+  if (price <= w.low * (1 + NEAR_EDGE)) return { signal: "buy", label: "Near 52W low" };
+  if (price >= w.high * (1 - NEAR_EDGE)) return { signal: "sell", label: "Near 52W high" };
+  return { signal: "hold", label: "Mid-range" };
+}
+
+/** Where the buy and sell zones of fiftyTwoWeekSignal start and end, as range positions (0 = low, 1 = high). */
+export function signalZones(w: FiftyTwoWeek): { buyTo: number; sellFrom: number } {
+  const span = w.high - w.low;
+  if (!(span > 0)) return { buyTo: 0, sellFrom: 1 };
+  const buyTo = Math.min(1, (w.low * NEAR_EDGE) / span);
+  return { buyTo, sellFrom: Math.max(buyTo, Math.min(1, (w.high * (1 - NEAR_EDGE) - w.low) / span)) };
+}
+
+/** NIFTY 50 and F&O stock lists saved by the index-members job; empty until it first runs. */
+export async function getIndexMembers(): Promise<IndexMembers> {
+  const [row] = await db.select().from(schema.appSetting).where(eq(schema.appSetting.key, INDEX_MEMBERS_KEY));
+  const v = row?.value as Partial<IndexMembers> | undefined;
+  return { nifty50: v?.nifty50 ?? [], fno: v?.fno ?? [], asOf: v?.asOf ?? null };
+}
+
+/** 52-week high/low close per instrument, from the trailing 365 days of stored history. */
+export async function fiftyTwoWeekRange(ids: number[]): Promise<Map<number, FiftyTwoWeek>> {
+  const out = new Map<number, FiftyTwoWeek>();
+  if (!ids.length) return out;
+  const list = sql.raw(`(${ids.map(Number).join(",")})`);
+  const rows = await db.execute<{ id: number; d: string; hi: string; hid: string; lo: string; lod: string }>(sql`
+    with last as (
+      select instrument_id, max(date) d from price_history where instrument_id in ${list} group by instrument_id
+    )
+    select l.instrument_id as id, l.d::text as d, hi.close as hi, hi.date::text as hid, lo.close as lo, lo.date::text as lod
+    from last l
+    left join lateral (
+      select close, date from price_history p
+      where p.instrument_id = l.instrument_id and p.date > l.d - interval '365 days' and p.date <= l.d
+      order by close desc, date desc limit 1
+    ) hi on true
+    left join lateral (
+      select close, date from price_history p
+      where p.instrument_id = l.instrument_id and p.date > l.d - interval '365 days' and p.date <= l.d
+      order by close asc, date desc limit 1
+    ) lo on true`);
+  for (const r of rows) {
+    if (r.hi == null || r.lo == null) continue;
+    out.set(Number(r.id), { high: Number(r.hi), highDate: r.hid, low: Number(r.lo), lowDate: r.lod, asOf: r.d });
+  }
+  return out;
 }
 
 export interface Trailing { r1: number | null; r3: number | null; r5: number | null; asOf: string | null }

@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "wp_session";
 export const PROFILE_COOKIE = "wp_profile";
+export const THEME_COOKIE = "wp_theme";
 export const SESSION_TTL_SEC = 7 * 24 * 3600;
 /** Re-sign the cookie once it is older than this, so active users never expire. */
 export const SLIDE_AFTER_SEC = 24 * 3600;

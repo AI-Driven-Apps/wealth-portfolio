@@ -8,7 +8,8 @@ import { config } from "@/lib/config";
 import { addDays, todayIST } from "@/lib/calc/dates";
 import { detectTrackedIndex, fetchMfapiHistory, fetchNavAll, fetchText } from "@/lib/providers/amfi";
 import { fetchDaily, fetchSector, toYahoo } from "@/lib/providers/yahoo";
-import { fetchBhav, fetchIndexCloses, SERIES_RANK, type BhavRow } from "@/lib/providers/nse";
+import { fetchBhav, fetchIndexCloses, fetchIndexMembers, SERIES_RANK, type BhavRow } from "@/lib/providers/nse";
+import { INDEX_MEMBERS_KEY } from "@/lib/portfolio/categories";
 import { getLtp, parseScripMaster, SCRIP_MASTER_URL } from "@/lib/providers/dhan";
 import { extendSampleData } from "@/lib/sample";
 import { runAlerts } from "@/lib/notify/alerts";
@@ -429,6 +430,17 @@ export async function ensureHistory(id: number, from: string): Promise<number> {
   return sym ? upsertPrices(id, await fetchDaily(sym, addDays(from, -7))) : 0;
 }
 
+/** NIFTY 50 and F&O stock lists for the 52-week page's categories. Both change a few times a year. */
+export const indexMembers: JobFn = async () => {
+  const m = await fetchIndexMembers();
+  // A layout change shouldn't wipe last week's good lists.
+  if (m.nifty50.length < 40 || m.fno.length < 100) throw new Error(`unexpected list sizes: NIFTY 50 ${m.nifty50.length}, F&O ${m.fno.length}`);
+  const value = { ...m, asOf: todayIST() };
+  await db.insert(schema.appSetting).values({ key: INDEX_MEMBERS_KEY, value })
+    .onConflictDoUpdate({ target: schema.appSetting.key, set: { value, updatedAt: new Date() } });
+  return { nifty50: m.nifty50.length, fno: m.fno.length };
+};
+
 // ---------------------------------------------------------------- registry
 
 interface JobDef {
@@ -447,6 +459,7 @@ export const JOBS: Record<string, JobDef> = {
   "live-quotes": { fn: liveQuotes, label: "Live quotes (Dhan, market hours)", mode: "live", piOnly: true },
   "dhan-scrip-master": { fn: dhanScripMaster, label: "Dhan security id mapping", mode: "live", piOnly: true },
   "nse-equity-list": { fn: nseEquityList, label: "NSE equity list (names + ISINs)", mode: "live" },
+  "index-members": { fn: indexMembers, label: "NIFTY 50 + F&O stock lists (NSE, 52-week categories)", mode: "live" },
   alerts: { fn: runAlerts, label: "Discord alerts (summary, SIPs, maturities, moves, drift)", mode: "live" },
   daily: { fn: () => runDaily(), label: "Daily run: everything above in order (Vercel Cron)", mode: "live" },
   "ai-brief": { fn: runScheduledBriefs, label: "AI market brief (Claude API), for each user with the module", mode: "live", piOnly: true },
@@ -470,7 +483,7 @@ export function jobBlocked(name: string): string | null {
 async function runDaily(budgetMs = 170_000): Promise<JobResult> { // the prices step alone may take ~100 s; maxDuration is 300 s
   const t0 = Date.now();
   const steps = ["scheme-master", "nav-history", "prices", "alerts"];
-  if (new Date(Date.now() + 330 * 60_000).getUTCDay() === 0) steps.push("nse-equity-list"); // Sundays, IST
+  if (new Date(Date.now() + 330 * 60_000).getUTCDay() === 0) steps.push("nse-equity-list", "index-members"); // Sundays, IST
   const done: Record<string, string> = {}, skipped: string[] = [];
   for (const s of steps) {
     if (Date.now() - t0 > budgetMs) { skipped.push(s); continue; }

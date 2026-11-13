@@ -30,6 +30,9 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
   basePath: process.env.NEXT_PUBLIC_BASE_PATH ?? "",
+  // Inlined by next.config at build time.
+  buildSha: process.env.BUILD_SHA ?? "",
+  buildTime: process.env.BUILD_TIME ?? "",
   // The sample demo takes no real statements.
   importsEnabled: isSample ? false : bool(process.env.IMPORTS_ENABLED, true),
   // Off the Pi the parser is on the internet: https and a shared secret, or no PDF imports.
